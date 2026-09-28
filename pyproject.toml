@@ -1,0 +1,21 @@
+[project]
+name = "confucius4-r2t2-t8"
+version = "0.1.0"
+description = "Confucius4-R2T2 GGUF Q8 speech recognition nodes for ComfyUI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = []
+classifiers = [
+  "Operating System :: Microsoft :: Windows",
+  "Environment :: GPU :: NVIDIA CUDA",
+]
+
+[project.urls]
+Repository = "https://github.com/T8mars/comfyui-confucius-r2t2-t8"
+"Bug Tracker" = "https://github.com/T8mars/comfyui-confucius-r2t2-t8/issues"
+"Model Files" = "https://huggingface.co/t8star/Confucius-R2t2-Comfy"
+
+[tool.comfy]
+PublisherId = "t8star"
+DisplayName = "Confucius4-R2T2 Q8 ASR"

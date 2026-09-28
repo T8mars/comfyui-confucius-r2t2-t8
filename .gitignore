@@ -1,0 +1,14 @@
+# Private planning material must never be committed.
+/roadmap.md
+/AGENTS.md
+/.planning/
+/.reference/
+
+# Local model weights, environments, and generated evidence.
+/models/
+/.venv*/
+/.runtime/
+/outputs/
+/logs/
+__pycache__/
+*.py[cod]

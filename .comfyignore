@@ -1,0 +1,10 @@
+# Development and evaluation tools are not required by the installed nodes.
+tests/
+scripts/browser_*.py
+scripts/bf16_reference.py
+scripts/evaluate_*.py
+scripts/integration_*.py
+scripts/prepare_*.py
+scripts/score_*.py
+scripts/setup_bf16_reference_windows.ps1
+scripts/smoke_native.py

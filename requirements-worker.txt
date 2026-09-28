@@ -1,0 +1,9 @@
+aiohttp==3.14.3
+numpy==2.5.3
+onnxruntime==1.23.2
+kaldi-native-fbank==1.22.3
+kaldiio==2.18.1
+pybind11==3.0.1
+requests==2.34.2
+soundfile==0.14.0
+soxr==1.1.0

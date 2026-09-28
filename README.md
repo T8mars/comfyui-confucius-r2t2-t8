@@ -1,1 +1,36 @@
-# comfyui-confucius-r2t2-t8
+# Confucius4-R2T2 Q8 for ComfyUI
+
+[简体中文](README.md) · [English](README_EN.md)
+
+基于网易有道 [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) 的 Windows / NVIDIA CUDA 语音转文字节点。使用官方 **GGUF Q8 主模型 + Q8 音频 projector**；推理运行在独立的 Python 3.12 worker 中，不向现有 ComfyUI Python 安装上游 vLLM 依赖。
+
+支持文件离线转写、文件流式转写、浏览器麦克风实时字幕和保存转写。长音频分段使用 [FireRedVAD](https://github.com/FireRedTeam/FireRedVAD) ONNX。模型文件及许可说明见 [Hugging Face 模型仓库](https://huggingface.co/t8star/Confucius-R2t2-Comfy)。
+
+## 安装
+
+1. 在 ComfyUI Manager 搜索 **Confucius4-R2T2 Q8 ASR** 安装，或将本仓库克隆到 `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`。
+2. 安装 Python 3.12、Git、CMake、Visual Studio 2022 C++ 构建工具和 CUDA Toolkit 12.8。在节点目录打开 PowerShell，运行：
+
+   ```powershell
+   .\scripts\setup_worker_windows.ps1
+   ```
+
+3. 重启 ComfyUI。首次设置会下载并校验约 2.19 GB 的 Q8 模型文件，并从固定版本的 llama.cpp 构建 CUDA 扩展；需要预留编译时间。默认编译目标为 RTX 50 系列（CUDA 架构 120）。其他 NVIDIA GPU 请先运行 `setup_worker_windows.ps1 -SkipNativeBuild`，再运行 `build_native_windows.ps1 -CudaArch <架构>`。
+
+安装脚本将 worker 与模型放在节点目录下的 `.runtime/`、`models/`，两者均被 Git 忽略。手动接入已有 ComfyUI 源码目录可执行 `scripts/install_comfy_windows.ps1 -ComfyDir 'C:\path\to\ComfyUI'`。
+
+## 使用
+
+将 [文件工作流](workflows/confucius4_q8_file.json) **拖入 ComfyUI 前端画布**，在 `Load Audio` 重新选择自己的音频，点击 **运行**。将 [麦克风工作流](workflows/confucius4_q8_live.json) 拖入画布后，在 Live 节点点击 **Start microphone**，授权麦克风；点击 **Stop and finalize** 后，再点击 **运行** 保存最终文字。浏览器麦克风需要 localhost 或 HTTPS。
+
+节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+
+本机 Windows / RTX 5090 Laptop / CUDA 12.8 已通过官方 Q8 文件的离线与流式推理、真实 ComfyUI 前端拖入工作流并点击运行，以及注入音频的 Live Start/Stop 前端流程。物理麦克风、自然连续长语音的质量及所有 GPU 架构尚未全面验收；强制分段结果会标记 `requires_review`。默认不保存原始音频。
+
+## 许可与来源
+
+节点代码按 [Apache 2.0](LICENSE) 发布；原生适配代码来源与修改见 [NOTICE](vendor/r2t2_native/NOTICE.md)。GGUF 模型及 projector 属网易有道，受其 [Model Use License Agreement](https://huggingface.co/t8star/Confucius-R2t2-Comfy/blob/main/MODEL_LICENSE) 约束；FireRedVAD 资产受 Apache 2.0 约束。使用或再分发模型时请阅读相应许可。本项目与模型原作者无官方隶属关系。
+
+## 更多链接
+
+[B站](https://space.bilibili.com/385085361) · [YouTube](https://www.youtube.com/@T8star-Aix/) · [API](https://api.seedance.nz/sign-up?aff=5f4w) · [免费画廊](https://www.openzhenzhen.com) · [在线 AI 应用](https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121) · [ComfyUI 整合包](https://pan.quark.cn/s/264edb7e36bd) · [Hugging Face](https://huggingface.co/t8star)
