@@ -172,6 +172,21 @@ async def load(request: web.Request) -> web.Response:
     return web.json_response(await service(request).load(value))
 
 
+def transcribe_segmented_offline(engine: NativeQ8Engine, pcm: np.ndarray,
+                                 language: str | None, context: str) -> dict:
+    # Reuse the live/file-stream boundary ownership and quality flags, but
+    # decode only once per finalized segment and retain no streaming events.
+    session = SegmentedStream(engine, language=language, context=context, offline=True)
+    for pos in range(0, len(pcm), 640):
+        session.feed(pcm[pos:pos + 640])
+    terminal = session.finish()
+    return {"text": session.stable_text, "language": session.detected_language,
+            "finish_reason": terminal.get("finish_reason"), "truncated": terminal.get("truncated", False),
+            "events": [], "model": engine.model_name, "projector": engine.projector_name,
+            "mode_executed": "segmented_offline", "forced_boundaries": session.forced_boundaries,
+            "segments": session.segments}
+
+
 async def transcribe(request: web.Request) -> web.Response:
     svc = service(request)
     data = await request.read()
@@ -236,7 +251,9 @@ async def transcribe(request: web.Request) -> web.Response:
         elif mode == "offline" and len(pcm) <= 30 * 16000:
             result = await asyncio.to_thread(engine.transcribe, pcm, context=context, language=language)
             result["events"] = []
-        elif mode in ("offline", "stream"):
+        elif mode == "offline":
+            result = await asyncio.to_thread(transcribe_segmented_offline, engine, pcm, language, context)
+        elif mode == "stream":
             session = (SegmentedStream(engine, language=language, context=context,
                                        chunk_ms=stream_chunk_ms,
                                        vad=PresetBoundaryVAD(zero_boundaries)) if zero_boundaries else

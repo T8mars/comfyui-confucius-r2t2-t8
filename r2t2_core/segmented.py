@@ -1,4 +1,4 @@
-"""Speech-boundary segmentation around the append-only Q8 stream controller."""
+"""Speech-boundary segmentation for offline and append-only Q8 decoding."""
 
 from __future__ import annotations
 
@@ -58,6 +58,45 @@ def exact_zero_boundaries(pcm: np.ndarray, *, minimum_zero: int = 2400,
 
 
 @dataclass
+class OfflineSegment:
+    """Collect one bounded segment and recognize it once at its final boundary."""
+
+    engine: NativeQ8Engine
+    language: str | None = None
+    context: str = ""
+    max_segment_seconds: float = 30.0
+    _chunks: list[np.ndarray] = field(default_factory=list)
+    _samples: int = 0
+    _final_event: dict | None = None
+
+    def feed(self, pcm: np.ndarray) -> list[dict]:
+        if self._final_event is not None:
+            raise RuntimeError("Offline segment already finalized")
+        value = np.asarray(pcm, dtype=np.float32)
+        if value.ndim != 1 or not np.isfinite(value).all():
+            raise ValueError("Expected finite mono PCM")
+        if self._samples + len(value) > self.max_segment_seconds * 16000:
+            raise ValueError("CONTEXT_LIMIT: maximum offline segment duration reached")
+        if value.size:
+            self._chunks.append(value)
+            self._samples += len(value)
+        return []
+
+    def finish(self) -> dict:
+        if self._final_event is not None:
+            return {**self._final_event, "delta": "", "idempotent": True}
+        result = (self.engine.transcribe(np.concatenate(self._chunks),
+                                        context=self.context, language=self.language)
+                  if self._samples else
+                  {"text": "", "language": "", "finish_reason": "stop", "truncated": False})
+        text = result["text"].strip()
+        self._final_event = {**result, "stable_text": text, "preview_text": text,
+                             "delta": text, "audio_end_sample": self._samples, "final": True}
+        self._chunks.clear()
+        return dict(self._final_event)
+
+
+@dataclass
 class PresetBoundaryVAD:
     """Present precomputed digital-zero cuts to SegmentedStream."""
 
@@ -82,6 +121,7 @@ class SegmentedStream:
     chunk_ms: int = 160
     segment_seconds: int = 20
     min_segment_seconds: int = 0
+    offline: bool = False
     vad: FireRedOnnxVAD = field(default_factory=FireRedOnnxVAD)
     segment_id: int = 0
     segment_start: int = 0
@@ -94,7 +134,7 @@ class SegmentedStream:
     truncated: bool = False
     forced_boundaries: int = 0
     segments: list[dict] = field(default_factory=list)
-    _segment: StreamingSession = field(init=False)
+    _segment: StreamingSession | OfflineSegment = field(init=False)
     _leading_zero_samples: int = 0
     _has_nonzero: bool = False
     _pending_silence: bool = False
@@ -106,8 +146,10 @@ class SegmentedStream:
         self._new_segment()
 
     def _new_segment(self) -> None:
-        self._segment = StreamingSession(self.engine, language=self.language, context=self.context,
-                                         chunk_ms=self.chunk_ms, max_segment_seconds=30)
+        self._segment = (OfflineSegment(self.engine, language=self.language, context=self.context)
+                         if self.offline else
+                         StreamingSession(self.engine, language=self.language, context=self.context,
+                                          chunk_ms=self.chunk_ms, max_segment_seconds=30))
         self._leading_zero_samples = 0
         self._has_nonzero = False
         self._segment_joiner = None
