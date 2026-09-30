@@ -25,6 +25,8 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
 
+Since **0.1.1**, `offline` files longer than 30 seconds are split with VAD and decoded once per segment, with a maximum segment length of 20 seconds. Results report `mode_executed=segmented_offline`. Earlier versions switched these files to streaming decoding, with repeated inference and accumulated caption events. `n_ctx` controls the inference context for one segment; increasing it does not remove segmentation or define the maximum file duration. File transport accepts up to 512 MiB of raw float32 PCM, so available duration depends on sample rate and channel count. `stream_chunk_ms` affects streaming mode only.
+
 The official Q8 files have been exercised on Windows / RTX 5090 Laptop / CUDA 12.8 for offline and streaming inference, frontend workflow drag-and-run, and a live frontend Start/Stop path with injected audio. Physical-microphone capture, accuracy on uninterrupted natural long speech, and other GPU architectures remain unverified. Forced segmentation is marked `requires_review`. Raw audio is not saved by default.
 
 ## Licenses and provenance

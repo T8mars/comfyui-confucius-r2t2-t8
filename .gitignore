@@ -6,6 +6,7 @@
 
 # Local model weights, environments, and generated evidence.
 /models/
+/qwen-image-2.1-4bit/
 /.venv*/
 /.runtime/
 /outputs/
