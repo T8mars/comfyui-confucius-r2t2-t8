@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import importlib
 import os
@@ -55,6 +56,24 @@ def verify_pair(directory: Path = GGUF_DIR, *, hash_files: bool = True) -> tuple
     return paths[0], paths[1]
 
 
+def _load_backends(build: Path) -> None:
+    """Register the ggml backend plugins sitting next to the runtime libraries.
+
+    llama.cpp keeps its backends in separate libraries and only picks them up
+    through ggml_backend_load_all(), which this build does not call with a
+    usable path. Registering them here keeps CUDA available for the Q8 engine.
+    """
+    plugins = sorted((build / "backends").glob("*.dll"))
+    ggml = build / "lib" / "ggml.dll"
+    if not plugins or not ggml.is_file():
+        return
+    registry = ctypes.WinDLL(str(ggml))
+    registry.ggml_backend_load.restype = ctypes.c_void_p
+    registry.ggml_backend_load.argtypes = [ctypes.c_char_p]
+    for plugin in plugins:
+        registry.ggml_backend_load(str(plugin).encode())
+
+
 def _load_extension(build: Path):
     if os.name != "nt":
         raise RuntimeError("This worker build is for Windows x64")
@@ -70,6 +89,7 @@ def _load_extension(build: Path):
         _DLL_HANDLES.append(os.add_dll_directory(str(dll_dir)))
     if str(pyd_dir) not in sys.path:
         sys.path.insert(0, str(pyd_dir))
+    _load_backends(build)
     return importlib.import_module("qwen3asr_native")
 
 

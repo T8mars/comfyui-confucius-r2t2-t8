@@ -19,6 +19,15 @@ ROOT = Path(__file__).resolve().parent
 SESSION_CREDENTIAL_TTL_SECONDS = 75 * 60
 
 
+def _worker_python() -> Path:
+    """The venv layout first, then the portable worker shipped with the component."""
+    base = ROOT / ".runtime" / "worker"
+    for candidate in (base / "Scripts" / "python.exe", base / "python.exe"):
+        if candidate.is_file():
+            return candidate
+    return base / "Scripts" / "python.exe"
+
+
 class WorkerError(RuntimeError):
     def __init__(self, message: str, *, http_status: int | None = None,
                  worker_code: str | None = None) -> None:
@@ -68,7 +77,8 @@ class WorkerManager:
         if self._log_file is not None:
             self._log_file.close()
             self._log_file = None
-        python = Path(os.environ.get("R2T2_WORKER_PYTHON", ROOT / ".runtime/worker/Scripts/python.exe"))
+        override = os.environ.get("R2T2_WORKER_PYTHON")
+        python = Path(override) if override else _worker_python()
         if not python.is_file():
             raise WorkerError(f"Isolated worker Python not found: {python}. Run scripts/setup_worker_windows.ps1")
         self.port = self._port()
