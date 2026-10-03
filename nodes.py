@@ -24,18 +24,29 @@ def _cue_timestamp(seconds: float, kind: str) -> str:
 
 
 def _subtitle(result: dict, kind: str) -> str:
-    """Render the per-segment boundaries and text as SRT or WebVTT cues."""
+    """Render timed cues as SRT or WebVTT.
+
+    A segmented transcript yields one cue per segment. A short file that was
+    decoded in one pass has no boundaries to draw on, so it becomes a single
+    cue covering the whole audio.
+    """
     cues = []
     for segment in result.get("segments", []):
         text = (segment.get("text") or "").strip()
-        if not text:
-            continue
-        start = segment["start_sample"] / SEGMENT_SAMPLE_RATE
-        end = segment["end_sample"] / SEGMENT_SAMPLE_RATE
-        cues.append(f"{_cue_timestamp(start, kind)} --> {_cue_timestamp(end, kind)}\n{text}")
+        if text:
+            cues.append((segment["start_sample"] / SEGMENT_SAMPLE_RATE,
+                         segment["end_sample"] / SEGMENT_SAMPLE_RATE, text))
+    if not cues:
+        text = (result.get("text") or "").strip()
+        samples = result.get("audio_samples_16k")
+        seconds = samples / SEGMENT_SAMPLE_RATE if samples else result.get("audio_seconds")
+        if text and seconds:
+            cues.append((0.0, float(seconds), text))
+    blocks = [f"{_cue_timestamp(start, kind)} --> {_cue_timestamp(end, kind)}\n{text}"
+              for start, end, text in cues]
     if kind == "vtt":
-        return "WEBVTT\n\n" + "\n\n".join(cues) + "\n" if cues else "WEBVTT\n"
-    return "".join(f"{index}\n{cue}\n\n" for index, cue in enumerate(cues, 1))
+        return "WEBVTT\n\n" + "\n\n".join(blocks) + "\n" if blocks else "WEBVTT\n"
+    return "".join(f"{index}\n{block}\n\n" for index, block in enumerate(blocks, 1))
 
 
 class R2T2GGUFLoader:
@@ -235,9 +246,10 @@ class R2T2Subtitle:
         if segments and not any(segment.get("text") for segment in segments):
             raise ValueError("Transcript has segment boundaries but no per-segment text; "
                              "re-run the workflow to capture it")
-        if not segments:
-            raise ValueError("Transcript carries no timed segments, so no cues can be produced")
-        return (_write_transcript(prefix, format, _subtitle(result, format), result_json),)
+        content = _subtitle(result, format)
+        if not content.strip():
+            raise ValueError("Transcript carries no timed text to turn into cues")
+        return (_write_transcript(prefix, format, content, result_json),)
 
 
 class R2T2Unload:
