@@ -208,7 +208,8 @@ class SegmentedStream:
                               "end_sample": boundary, "end_reason": reason,
                               "skipped_zero_samples": self._leading_zero_samples,
                               "finish_reason": local.get("finish_reason"),
-                              "truncated": local.get("truncated", False)})
+                              "truncated": local.get("truncated", False),
+                              "text": event.get("delta", "")})
         self.segment_id += 1
         self.segment_start = boundary
         self._pending_silence = False

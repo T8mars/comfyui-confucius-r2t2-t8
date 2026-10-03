@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from .bridge import ROOT, WorkerError, manager
+from .r2t2_core.subtitle import render_subtitle
 
 LANGUAGES = ["Auto", "Chinese", "English", "Cantonese", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"]
 
@@ -122,12 +123,52 @@ class R2T2LiveSession:
         return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False))
 
 
+def _write_transcript(prefix: str, suffix: str, content: str, result_json: str) -> str:
+    """Write one transcript file into the ComfyUI output directory without racing."""
+    import folder_paths
+
+    safe_prefix = re.sub(r"[^A-Za-z0-9_-]", "_", prefix).strip("_")[:64] or "r2t2_transcript"
+    digest = hashlib.sha256(result_json.encode("utf-8")).hexdigest()[:16]
+    output_dir = Path(folder_paths.get_output_directory()).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{safe_prefix}_{digest}.{suffix}"
+    if path.is_symlink():
+        raise FileExistsError(f"Refusing to follow a transcript symlink: {path}")
+    if path.exists():
+        if path.read_text(encoding="utf-8") != content:
+            raise FileExistsError(f"Different content already exists at {path}")
+    else:
+        temp_path = None
+        try:
+            descriptor, temp_name = tempfile.mkstemp(prefix=".r2t2-", suffix=".tmp", dir=output_dir)
+            temp_path = Path(temp_name)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.link(temp_path, path)
+            except FileExistsError:
+                if path.is_symlink() or path.read_text(encoding="utf-8") != content:
+                    raise FileExistsError(f"Different content already exists at {path}")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+    return str(path)
+
+
+def _savable(result: dict) -> dict:
+    if result.get("status") not in ("complete", "finalized", "requires_review", "truncated"):
+        raise ValueError("Only finalized transcripts or reviewable partial results can be saved")
+    return result
+
+
 class R2T2SaveTranscript:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
             "result_json": ("STRING", {"forceInput": True}),
-            "format": (["txt", "json"],),
+            "format": (["txt", "json", "srt", "vtt"],),
             "prefix": ("STRING", {"default": "r2t2_transcript"}),
         }}
 
@@ -138,42 +179,47 @@ class R2T2SaveTranscript:
     OUTPUT_NODE = True
 
     def save(self, result_json, format, prefix):
-        import folder_paths
-
-        if format not in ("txt", "json"):
-            raise ValueError("Transcript format must be txt or json")
-        result = json.loads(result_json)
-        if result.get("status") not in ("complete", "finalized", "requires_review", "truncated"):
-            raise ValueError("Only finalized transcripts or reviewable partial results can be saved")
-        safe_prefix = re.sub(r"[^A-Za-z0-9_-]", "_", prefix).strip("_")[:64] or "r2t2_transcript"
-        content = result.get("text", "") if format == "txt" else json.dumps(result, ensure_ascii=False, indent=2)
-        digest = hashlib.sha256(result_json.encode("utf-8")).hexdigest()[:16]
-        output_dir = Path(folder_paths.get_output_directory()).resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
-        path = output_dir / f"{safe_prefix}_{digest}.{format}"
-        if path.is_symlink():
-            raise FileExistsError(f"Refusing to follow a transcript symlink: {path}")
-        if path.exists():
-            if path.read_text(encoding="utf-8") != content:
-                raise FileExistsError(f"Different content already exists at {path}")
+        if format not in ("txt", "json", "srt", "vtt"):
+            raise ValueError("Transcript format must be txt, json, srt or vtt")
+        result = _savable(json.loads(result_json))
+        if format == "json":
+            content = json.dumps(result, ensure_ascii=False, indent=2)
+        elif format in ("srt", "vtt"):
+            content = render_subtitle(result, format)
         else:
-            temp_path = None
-            try:
-                descriptor, temp_name = tempfile.mkstemp(prefix=".r2t2-", suffix=".tmp", dir=output_dir)
-                temp_path = Path(temp_name)
-                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                try:
-                    os.link(temp_path, path)
-                except FileExistsError:
-                    if path.is_symlink() or path.read_text(encoding="utf-8") != content:
-                        raise FileExistsError(f"Different content already exists at {path}")
-            finally:
-                if temp_path is not None:
-                    temp_path.unlink(missing_ok=True)
-        return (str(path),)
+            content = result.get("text", "")
+        path = _write_transcript(prefix, format, content, result_json)
+        return {"ui": {"text": (path,)}, "result": (path,)}
+
+
+class R2T2Subtitle:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "result_json": ("STRING", {"forceInput": True}),
+            "format": (["srt", "vtt"],),
+            "prefix": ("STRING", {"default": "r2t2_subtitle"}),
+        }}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("saved_path",)
+    FUNCTION = "save"
+    CATEGORY = "Confucius4-R2T2"
+    OUTPUT_NODE = True
+
+    def save(self, result_json, format, prefix):
+        if format not in ("srt", "vtt"):
+            raise ValueError("Subtitle format must be srt or vtt")
+        result = _savable(json.loads(result_json))
+        segments = result.get("segments", [])
+        if segments and not any(segment.get("text") for segment in segments):
+            raise ValueError("Transcript has segment boundaries but no per-segment text; "
+                             "re-run the workflow to capture it")
+        content = render_subtitle(result, format)
+        if not content.strip():
+            raise ValueError("Transcript carries no timed text to turn into cues")
+        path = _write_transcript(prefix, format, content, result_json)
+        return {"ui": {"text": (path,)}, "result": (path,)}
 
 
 class R2T2Unload:
@@ -196,6 +242,7 @@ NODE_CLASS_MAPPINGS = {name: cls for name, cls in (
     ("R2T2Transcribe", R2T2Transcribe),
     ("R2T2LiveSession", R2T2LiveSession),
     ("R2T2SaveTranscript", R2T2SaveTranscript),
+    ("R2T2Subtitle", R2T2Subtitle),
     ("R2T2Unload", R2T2Unload),
 )}
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -203,5 +250,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "R2T2Transcribe": "Confucius4 Transcribe",
     "R2T2LiveSession": "Confucius4 Live Microphone",
     "R2T2SaveTranscript": "Confucius4 Save Transcript",
+    "R2T2Subtitle": "Confucius4 Save Subtitle",
     "R2T2Unload": "Confucius4 Unload Q8",
 }

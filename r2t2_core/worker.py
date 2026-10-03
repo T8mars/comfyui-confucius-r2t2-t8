@@ -234,6 +234,7 @@ async def transcribe(request: web.Request) -> web.Response:
                 pieces.append(piece)
                 segments.append({"segment_id": index, "start_sample": first,
                                  "end_sample": last, "end_reason": "digital_zero" if index < len(zero_boundaries) else "input_end",
+                                 "text": piece["text"].strip(),
                                  "language": piece["language"], "finish_reason": piece["finish_reason"],
                                  "truncated": piece["truncated"]})
             languages = {piece["language"] for piece in pieces if piece["language"]}
