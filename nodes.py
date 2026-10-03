@@ -54,6 +54,7 @@ class R2T2Transcribe:
         }, "optional": {
             "auto_gain": ("BOOLEAN", {"default": True}),
             "stream_chunk_ms": ("INT", {"default": 160, "min": 160, "max": 640, "step": 160}),
+            "unload_after": ("BOOLEAN", {"default": True}),
         }}
 
     RETURN_TYPES = ("STRING", "STRING", "STRING")
@@ -62,7 +63,7 @@ class R2T2Transcribe:
     CATEGORY = "Confucius4-R2T2"
 
     def transcribe(self, model, audio, mode, language, context, hotwords, channel,
-                   auto_gain=True, stream_chunk_ms=160):
+                   auto_gain=True, stream_chunk_ms=160, unload_after=True):
         import numpy as np
 
         if not isinstance(audio, dict) or "waveform" not in audio or "sample_rate" not in audio:
@@ -79,7 +80,7 @@ class R2T2Transcribe:
         options = {"sample_rate": int(audio["sample_rate"]), "channels": waveform.shape[1],
                    "mode": mode, "language": language, "context": context,
                    "hotwords": hotwords, "channel": channel, "auto_gain": auto_gain,
-                   "stream_chunk_ms": stream_chunk_ms}
+                   "stream_chunk_ms": stream_chunk_ms, "unload_after": unload_after}
         result = manager.transcribe(pcm.tobytes(), options, model["config"])
         return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False))
 
