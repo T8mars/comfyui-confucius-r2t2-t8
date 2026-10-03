@@ -81,6 +81,16 @@ class Service:
                 elif idle > TERMINAL_RETENTION_SECONDS:
                     del self.sessions[sid]
 
+    def release(self) -> None:
+        """Drop the engine and its sessions so the native buffers leave VRAM."""
+        self.sessions.clear()
+        self.live_warmed = False
+        self.engine = None
+        self.model_config = None
+        # The old model and terminal session streams must release their native
+        # VRAM before anything else claims the memory.
+        gc.collect()
+
     async def load(self, config: dict) -> dict:
         allowed = {"n_ctx", "n_batch", "n_threads", "gpu_layers"}
         if set(config) - allowed:
@@ -206,6 +216,9 @@ async def transcribe(request: web.Request) -> web.Response:
         raise ValueError("stream_chunk_ms must be 160, 320, 480 or 640")
     language = options.get("language", "Auto")
     language = None if language == "Auto" else language
+    unload_after = options.get("unload_after", True)
+    if not isinstance(unload_after, bool):
+        raise ValueError("unload_after must be boolean")
     context = options.get("context", "")
     hotwords = options.get("hotwords", "")
     if hotwords:
@@ -287,6 +300,14 @@ async def transcribe(request: web.Request) -> web.Response:
                    "stream_chunk_ms": stream_chunk_ms,
                    "audio_samples_16k": len(pcm), "audio_seconds": len(pcm) / 16000,
                    "elapsed_ms": round((time.perf_counter() - start) * 1000, 1), "mode": mode})
+    if unload_after:
+        # The model is only needed for this request. Holding it resident costs
+        # VRAM the rest of ComfyUI may want, so let it go unless a live session
+        # still holds a lease on it.
+        async with svc.lock:
+            if not any(s.status == "active" for s in svc.sessions.values()):
+                svc.release()
+                result["model_released"] = True
     return web.json_response(result)
 
 
@@ -434,9 +455,7 @@ async def unload(request: web.Request) -> web.Response:
     async with svc.lock:
         if any(s.status == "active" for s in svc.sessions.values()):
             raise error("BUSY", "Live session has a model lease", 409)
-        svc.sessions.clear()
-        svc.engine = None
-        svc.model_config = None
+        svc.release()
     return web.json_response({"loaded": False, "generation": svc.generation})
 
 

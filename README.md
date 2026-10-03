@@ -25,7 +25,7 @@
 
 节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
 
-从 **0.1.1** 起，`offline` 模式处理超过 30 秒的文件时，会用 VAD 分段并对每段做一次完整离线识别，每段最多 20 秒；结果中的 `mode_executed` 为 `segmented_offline`。此前版本会改走流式解码，长文件的重复计算和字幕事件较多。`n_ctx` 是单段推理的上下文大小，增大它不会取消分段，也不决定文件能处理多少分钟。文件传输上限为 512 MiB 的原始 float32 PCM，实际可用时长取决于采样率和声道数；`stream_chunk_ms` 只影响流式模式。
+从 **0.1.1** 起，`offline` 模式处理超过 30 秒的文件时，会用 VAD 分段并对每段做一次完整离线识别，每段最多 20 秒；结果中的 `mode_executed` 为 `segmented_offline`。此前版本会改走流式解码，长文件的重复计算和字幕事件较多。`n_ctx` 是单段推理的上下文大小，增大它不会取消分段，也不决定文件能处理多少分钟。文件传输上限为 512 MiB 的原始 float32 PCM，实际可用时长取决于采样率和声道数；`stream_chunk_ms` 只影响流式模式。`unload_after` 默认开启，转写结束后立即释放模型显存，连续批量转写时可关闭以复用已加载的模型。
 
 本机 Windows / RTX 5090 Laptop / CUDA 12.8 已通过官方 Q8 文件的离线与流式推理、真实 ComfyUI 前端拖入工作流并点击运行，以及注入音频的 Live Start/Stop 前端流程。物理麦克风、自然连续长语音的质量及所有 GPU 架构尚未全面验收；强制分段结果会标记 `requires_review`。默认不保存原始音频。
 
