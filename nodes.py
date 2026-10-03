@@ -188,7 +188,8 @@ class R2T2SaveTranscript:
             content = render_subtitle(result, format)
         else:
             content = result.get("text", "")
-        return (_write_transcript(prefix, format, content, result_json),)
+        path = _write_transcript(prefix, format, content, result_json)
+        return {"ui": {"text": (path,)}, "result": (path,)}
 
 
 class R2T2Subtitle:
@@ -217,7 +218,8 @@ class R2T2Subtitle:
         content = render_subtitle(result, format)
         if not content.strip():
             raise ValueError("Transcript carries no timed text to turn into cues")
-        return (_write_transcript(prefix, format, content, result_json),)
+        path = _write_transcript(prefix, format, content, result_json)
+        return {"ui": {"text": (path,)}, "result": (path,)}
 
 
 class R2T2Unload:
