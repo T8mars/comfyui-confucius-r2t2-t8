@@ -1,8 +1,8 @@
 {
   "id": "188410b7-0520-4b50-9146-33453f3e8b11",
   "revision": 0,
-  "last_node_id": 3,
-  "last_link_id": 2,
+  "last_node_id": 4,
+  "last_link_id": 3,
   "nodes": [
     {
       "id": 1,
@@ -323,7 +323,8 @@
           "pos": null,
           "slot_index": null,
           "links": [
-            2
+            2,
+            3
           ]
         }
       ],
@@ -456,6 +457,102 @@
         "format": "json",
         "prefix": "r2t2_live"
       }
+    },
+    {
+      "id": 4,
+      "type": "R2T2Subtitle",
+      "pos": [
+        850.0,
+        200.0
+      ],
+      "size": [
+        283.608984375,
+        82
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "showAdvanced": null,
+      "inputs": [
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "result_json",
+          "locked": null,
+          "name": "result_json",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "STRING",
+          "pos": null,
+          "link": 3
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "format",
+          "locked": null,
+          "name": "format",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "COMBO",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "prefix",
+          "locked": null,
+          "name": "prefix",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "STRING",
+          "widget": {
+            "name": "prefix"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "saved_path",
+          "locked": null,
+          "name": "saved_path",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "STRING",
+          "pos": null,
+          "slot_index": null,
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "R2T2Subtitle"
+      },
+      "widgets_values": [
+        "srt",
+        "r2t2_live_subtitle"
+      ],
+      "widgets_values_named": {
+        "format": "srt",
+        "prefix": "r2t2_live_subtitle"
+      }
     }
   ],
   "links": [
@@ -472,6 +569,14 @@
       2,
       2,
       3,
+      0,
+      "STRING"
+    ],
+    [
+      3,
+      2,
+      2,
+      4,
       0,
       "STRING"
     ]
