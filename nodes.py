@@ -10,8 +10,48 @@ import tempfile
 from pathlib import Path
 
 from .bridge import ROOT, WorkerError, manager
+from .hotwords import hotword_context, normalize_hotwords, read_hotword_file
 
 LANGUAGES = ["Auto", "Chinese", "English", "Cantonese", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"]
+
+
+class R2T2Hotwords:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "words": ("STRING", {"default": "", "multiline": True,
+                                 "tooltip": "Paste hotwords, one per line or separated by commas/semicolons. Phrases may contain spaces."}),
+        }, "optional": {
+            "hotword_file": ("STRING", {"default": "",
+                                        "tooltip": "Optional UTF-8 TXT path relative to ComfyUI/input, e.g. r2t2_hotwords/brands.txt. Merged with words."}),
+        }}
+
+    RETURN_TYPES = ("STRING", "INT")
+    RETURN_NAMES = ("hotwords", "count")
+    FUNCTION = "build"
+    CATEGORY = "Confucius4-R2T2"
+
+    @staticmethod
+    def _file(hotword_file):
+        if not isinstance(hotword_file, str):
+            raise ValueError("Hotword file must be a relative TXT path")
+        if not hotword_file:
+            return b""
+        import folder_paths
+
+        return read_hotword_file(Path(folder_paths.get_input_directory()), hotword_file)
+
+    @classmethod
+    def IS_CHANGED(cls, words, hotword_file=""):
+        # The path widget alone does not change when a shared word list is edited.
+        return hashlib.sha256(cls._file(hotword_file)).hexdigest()
+
+    def build(self, words, hotword_file=""):
+        data = self._file(hotword_file)
+        file_words = data.decode("utf-8-sig")
+        if not isinstance(words, str):
+            raise ValueError("Hotwords must be text")
+        return normalize_hotwords(words + "\n" + file_words)
 
 
 class R2T2GGUFLoader:
@@ -49,7 +89,8 @@ class R2T2Transcribe:
             "mode": (["offline", "stream"],),
             "language": (LANGUAGES,),
             "context": ("STRING", {"default": "", "multiline": True}),
-            "hotwords": ("STRING", {"default": "", "multiline": True}),
+            "hotwords": ("STRING", {"default": "", "multiline": True,
+                                    "tooltip": "Paste multiple hotwords or connect Confucius4 Hotwords. Recognition hints, not forced replacements."}),
             "channel": (["mean", "left", "right"],),
         }, "optional": {
             "auto_gain": ("BOOLEAN", {"default": True}),
@@ -65,6 +106,8 @@ class R2T2Transcribe:
                    auto_gain=True, stream_chunk_ms=160):
         import numpy as np
 
+        hotwords, _ = normalize_hotwords(hotwords)
+        hotword_context(context, hotwords)
         if not isinstance(audio, dict) or "waveform" not in audio or "sample_rate" not in audio:
             raise ValueError("Expected ComfyUI AUDIO with waveform and sample_rate")
         waveform = audio["waveform"]
@@ -192,6 +235,7 @@ class R2T2Unload:
 
 
 NODE_CLASS_MAPPINGS = {name: cls for name, cls in (
+    ("R2T2Hotwords", R2T2Hotwords),
     ("R2T2GGUFLoader", R2T2GGUFLoader),
     ("R2T2Transcribe", R2T2Transcribe),
     ("R2T2LiveSession", R2T2LiveSession),
@@ -199,6 +243,7 @@ NODE_CLASS_MAPPINGS = {name: cls for name, cls in (
     ("R2T2Unload", R2T2Unload),
 )}
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "R2T2Hotwords": "Confucius4 Hotwords",
     "R2T2GGUFLoader": "Confucius4 Q8 Loader",
     "R2T2Transcribe": "Confucius4 Transcribe",
     "R2T2LiveSession": "Confucius4 Live Microphone",

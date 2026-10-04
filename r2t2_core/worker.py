@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 from aiohttp import web
 
+from hotwords import hotword_context
 from .audio import limited_quiet_gain, to_mono_16k
 from .native import NativeQ8Engine, ROOT, OFFICIAL, MODEL_NAME, PROJECTOR_NAME, SUPPORTED_LANGUAGES
 from .segmented import PresetBoundaryVAD, SegmentedStream, exact_zero_boundaries, join_segment_text
@@ -193,7 +194,7 @@ async def transcribe(request: web.Request) -> web.Response:
     if len(data) < 4:
         raise ValueError("Missing request metadata")
     option_size = struct.unpack_from("<I", data)[0]
-    if option_size > 16_384 or len(data) < 4 + option_size:
+    if option_size > 65_536 or len(data) < 4 + option_size:
         raise ValueError("Invalid request metadata size")
     options = json.loads(data[4:4 + option_size].decode("utf-8"))
     data = data[4 + option_size:]
@@ -206,12 +207,7 @@ async def transcribe(request: web.Request) -> web.Response:
         raise ValueError("stream_chunk_ms must be 160, 320, 480 or 640")
     language = options.get("language", "Auto")
     language = None if language == "Auto" else language
-    context = options.get("context", "")
-    hotwords = options.get("hotwords", "")
-    if hotwords:
-        context = (context + "\n" if context else "") + "Hotwords: " + hotwords
-    if len(context) > 8192:
-        raise ValueError("Context/hotwords too long")
+    context = hotword_context(options.get("context", ""), options.get("hotwords", ""))
     pcm = await asyncio.to_thread(decode_pcm, data, sample_rate, channels, channel)
     auto_gain = options.get("auto_gain", True)
     if not isinstance(auto_gain, bool):
