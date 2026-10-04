@@ -25,14 +25,16 @@
 
 节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript`、`Confucius4 Save Subtitle` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
 
-### 视频字幕 / SRT（0.1.6）
+### 视频字幕 / SRT（0.1.7）
 
 将 [字幕工作流](workflows/confucius4_q8_subtitles.json) 拖入前端，选择音频或视频，点击运行。视频可放进 `ComfyUI/input` 后在 `Load Audio` 选择；读取第 1 条音轨，无需解码视频帧。
 
 - Transcribe 开启 `subtitle_timings`，短文件也会收集完整段文本与时间。新增 `srt` 输出；Live 结束后同样输出 SRT。原 `text/language/result_json` 输出顺序保持兼容。
 - `Save Transcript` 的 `format` 可选 **txt/json/srt/vtt**。`Save Subtitle` 额外提供中英文行宽、毫秒偏移、字幕文字/JSON/条数输出，以及前端预览与下载；文件保存在 `ComfyUI/output`。
 - 时间来自 VAD/识别分段，**属于近似字幕，需要校对**；没有字/词对齐。长句只换行并提示过长，不按平均时间制造逐句时标。视频有音轨延迟或截取偏移时，可用 `offset_ms` 校正。
-- 旧 JSON 缺少段文字或时间会要求重跑；`whole_audio_draft` 是显式的整段粗字幕回退。截断结果须开启 `allow_partial`，静音不生成空文件。不同偏移/内容生成不同文件，不覆盖已有字幕。
+- 旧 JSON 缺少段文字或时间会要求重跑；`whole_audio_draft` 是显式的整段粗字幕回退。截断结果须开启 `allow_partial`，静音不生成空字幕文件。不同偏移/内容生成不同文件，不覆盖已有字幕。
+
+0.1.7 修复热词粘贴中的前导 BOM，避免隐藏词和重复计数；采样率及文件请求参数会严格校验。重采样后为空的极短音频会明确报错。精确全零的文件音频直接返回空转录（`mode_executed=digital_silence`），保留时长并跳过解码；低音量非零音频仍会识别。
 
 0.1.6 修复实时会话的旧文字残留、重复启动和取消流程，工作流不再保存临时录音控件。模型卸载每次运行都会执行；worker 连接中断会进入恢复流程。字幕迁移兼容 `srt/json` 文件名前缀。更新后重启 ComfyUI 并刷新前端；若旧文件的 `format` 已丢失，请重新导入示例并设置参数。
 

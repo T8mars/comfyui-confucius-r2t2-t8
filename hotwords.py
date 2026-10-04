@@ -16,8 +16,13 @@ def normalize_hotwords(value: str) -> tuple[str, int]:
         raise ValueError("Hotwords must be text")
     if len(value.encode("utf-8")) > MAX_HOTWORD_BYTES:
         raise ValueError("Hotword input exceeds 64 KiB; use a smaller relevant word list")
-    words = dict.fromkeys(part.strip() for part in _SEPARATORS.split(value.lstrip("\ufeff"))
-                          if part.strip())
+    entries = []
+    for part in _SEPARATORS.split(value):
+        part = part.strip()
+        while part.startswith("\ufeff"):
+            part = part[1:].strip()
+        entries.append(part)
+    words = dict.fromkeys(part for part in entries if part)
     text = ", ".join(words)
     if len(text) + (len("Hotwords: ") if text else 0) > MAX_CONTEXT_CHARS:
         raise ValueError("CONTEXT_LIMIT: hotwords exceed the 8192-character prompt limit")

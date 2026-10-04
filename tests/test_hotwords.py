@@ -33,6 +33,15 @@ class HotwordTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 normalize_hotwords(value)
 
+    def test_pasted_bom_after_whitespace_does_not_create_hidden_or_duplicate_words(self):
+        self.assertEqual(normalize_hotwords("\n \ufeff品牌甲\n品牌甲"), ("品牌甲", 1))
+        self.assertEqual(normalize_hotwords("\n \ufeff\n"), ("", 0))
+        self.assertEqual(normalize_hotwords("first, \ufeffNew York;New York"), ("first, New York", 2))
+        self.assertEqual(normalize_hotwords("\ufeff \ufeffBrand; Brand"), ("Brand", 1))
+        self.assertEqual(normalize_hotwords("\ufeff \ufeff"), ("", 0))
+        self.assertEqual(normalize_hotwords("\ufeff \ufeffNew York;New York"), ("New York", 1))
+        self.assertEqual(hotword_context("", "\n \ufeff品牌甲\n品牌甲"), "Hotwords: 品牌甲")
+
     def test_local_txt_is_bounded_and_cannot_escape_input(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
