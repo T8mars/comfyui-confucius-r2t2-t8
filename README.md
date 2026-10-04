@@ -23,7 +23,25 @@
 
 将 [文件工作流](workflows/confucius4_q8_file.json) **拖入 ComfyUI 前端画布**，在 `Load Audio` 重新选择自己的音频，点击 **运行**。将 [麦克风工作流](workflows/confucius4_q8_live.json) 拖入画布后，在 Live 节点点击 **Start microphone**，授权麦克风；点击 **Stop and finalize** 后，再点击 **运行** 保存最终文字。浏览器麦克风需要 localhost 或 HTTPS。
 
-节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript`、`Confucius4 Save Subtitle` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+
+### 视频字幕 / SRT（0.1.3）
+
+将 [字幕工作流](workflows/confucius4_q8_subtitles.json) 拖入前端，选择音频或视频，点击运行。视频可放进 `ComfyUI/input` 后在 `Load Audio` 选择；读取第 1 条音轨，无需解码视频帧。
+
+- Transcribe 开启 `subtitle_timings`，短文件也会收集完整段文本与时间。新增 `srt` 输出；Live 结束后同样输出 SRT。原 `text/language/result_json` 输出顺序保持兼容。
+- `Save Transcript` 的 `format` 可选 **txt/json/srt/vtt**。`Save Subtitle` 额外提供中英文行宽、毫秒偏移、字幕文字/JSON/条数输出，以及前端预览与下载；文件保存在 `ComfyUI/output`。
+- 时间来自 VAD/识别分段，**属于近似字幕，需要校对**；没有字/词对齐。长句只换行并提示过长，不按平均时间制造逐句时标。视频有音轨延迟或截取偏移时，可用 `offset_ms` 校正。
+- 旧 JSON 缺少段文字或时间会要求重跑；`whole_audio_draft` 是显式的整段粗字幕回退。截断结果须开启 `allow_partial`，静音不生成空文件。不同偏移/内容生成不同文件，不覆盖已有字幕。
+
+也可离线转换已保存的、有段文本和时间的 JSON：
+
+```powershell
+python scripts/json_to_subtitle.py transcript.json --format srt --offset-ms 0
+```
+
+字/词精确对齐、音轨选择节点和字幕烧录属于后续功能；各剪辑软件的字幕导入兼容性尚未逐一验证。
+已在 ComfyUI 前端验证短 MP4 与 120 秒重复语音 MP4 的导出、预览、下载、时间偏移及旧工作流兼容性。
 
 **批量热词（0.1.2）**：
 

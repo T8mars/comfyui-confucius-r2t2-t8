@@ -77,7 +77,7 @@ class HotwordTests(unittest.TestCase):
             fake = types.SimpleNamespace(transcribe=lambda audio, options, config: {
                 "text": options["hotwords"], "language": "Chinese", "status": "complete"})
             with patch.object(module, "manager", fake):
-                text, _, _ = plugin.NODE_CLASS_MAPPINGS["R2T2Transcribe"]().transcribe(
+                text, _, _, _ = plugin.NODE_CLASS_MAPPINGS["R2T2Transcribe"]().transcribe(
                     {"config": {}}, {"waveform": np.zeros((1, 1, 16000)), "sample_rate": 16000},
                     "offline", "Chinese", "产品访谈", hotwords, "mean")
             self.assertEqual(text, "品牌甲, 额外词, 品牌乙, New York")

@@ -53,6 +53,8 @@ class FireRedOnnxVAD:
         self.active = False
         self.speech_frames = 0
         self.last_probability = 0.0
+        self.speech_start_sample = None
+        self.speech_intervals = deque()
 
     def feed(self, pcm: np.ndarray) -> list[dict]:
         value = np.asarray(pcm, dtype=np.float32)
@@ -81,6 +83,10 @@ class FireRedOnnxVAD:
                 self.silence_candidate = 0 if speech else self.silence_candidate + 1
                 if self.silence_candidate >= self.min_silence or self.speech_frames >= self.max_speech:
                     reason = "forced" if self.speech_frames >= self.max_speech else "silence"
+                    speech_end = min(self.samples_seen, (frame - self.silence_candidate) * 160 + 240)
+                    if self.speech_start_sample is not None and speech_end > self.speech_start_sample:
+                        self.speech_intervals.append((self.speech_start_sample, speech_end))
+                    self.speech_start_sample = None
                     events.append({"sample": min(self.samples_seen, frame * 160 + 240),
                                    "reason": reason, "frame": frame, "probability": self.last_probability})
                     self.active = False
@@ -91,10 +97,23 @@ class FireRedOnnxVAD:
                 self.speech_candidate = self.speech_candidate + 1 if speech else 0
                 if self.speech_candidate >= self.min_speech:
                     self.active = True
+                    self.speech_start_sample = max(0, (frame - self.speech_candidate) * 160)
                     self.speech_frames = self.speech_candidate
                     self.silence_candidate = 0
         self.next_frame = ready
+        while self.speech_intervals and self.speech_intervals[0][1] < self.samples_seen - 60 * 16000:
+            self.speech_intervals.popleft()
         return events
+
+    def speech_bounds(self, start: int, end: int):
+        """Approximate acoustic interval, separate from decoder ownership cuts."""
+        intervals = list(self.speech_intervals)
+        if self.speech_start_sample is not None:
+            speech_end = min(self.samples_seen, (self.next_frame - self.silence_candidate) * 160 + 240)
+            intervals.append((self.speech_start_sample, speech_end))
+        overlaps = [(max(start, first), min(end, last)) for first, last in intervals
+                    if first < end and last > start]
+        return (min(first for first, _ in overlaps), max(last for _, last in overlaps)) if overlaps else None
 
     def reset_speech_duration(self) -> None:
         """Keep acoustic state but restart the hard speech-length counter.

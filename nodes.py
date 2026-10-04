@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .bridge import ROOT, WorkerError, manager
 from .hotwords import hotword_context, normalize_hotwords, read_hotword_file
+from .subtitles import build_subtitles, render_subtitle
 
 LANGUAGES = ["Auto", "Chinese", "English", "Cantonese", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"]
 
@@ -95,15 +96,17 @@ class R2T2Transcribe:
         }, "optional": {
             "auto_gain": ("BOOLEAN", {"default": True}),
             "stream_chunk_ms": ("INT", {"default": 160, "min": 160, "max": 640, "step": 160}),
+            "subtitle_timings": ("BOOLEAN", {"default": False,
+                                             "tooltip": "Collect complete segment text and approximate VAD timings for SRT/VTT. Enable before exporting subtitles."}),
         }}
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING")
-    RETURN_NAMES = ("text", "language", "result_json")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("text", "language", "result_json", "srt")
     FUNCTION = "transcribe"
     CATEGORY = "Confucius4-R2T2"
 
     def transcribe(self, model, audio, mode, language, context, hotwords, channel,
-                   auto_gain=True, stream_chunk_ms=160):
+                   auto_gain=True, stream_chunk_ms=160, subtitle_timings=False):
         import numpy as np
 
         hotwords, _ = normalize_hotwords(hotwords)
@@ -122,9 +125,10 @@ class R2T2Transcribe:
         options = {"sample_rate": int(audio["sample_rate"]), "channels": waveform.shape[1],
                    "mode": mode, "language": language, "context": context,
                    "hotwords": hotwords, "channel": channel, "auto_gain": auto_gain,
-                   "stream_chunk_ms": stream_chunk_ms}
+                   "stream_chunk_ms": stream_chunk_ms, "subtitle_timings": subtitle_timings}
         result = manager.transcribe(pcm.tobytes(), options, model["config"])
-        return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False))
+        srt = _direct_srt(result) if subtitle_timings else ""
+        return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False), srt)
 
 
 class R2T2LiveSession:
@@ -141,8 +145,8 @@ class R2T2LiveSession:
             "min_segment_seconds": ("INT", {"default": 8, "min": 0, "max": 8, "step": 4}),
         }}
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING")
-    RETURN_NAMES = ("text", "language", "result_json")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("text", "language", "result_json", "srt")
     FUNCTION = "read_snapshot"
     CATEGORY = "Confucius4-R2T2"
 
@@ -162,7 +166,92 @@ class R2T2LiveSession:
             raise WorkerError(f"Live session is {result['status']}; click Stop before workflow execution")
         if int(revision) != result["revision"]:
             raise WorkerError(f"Snapshot revision mismatch: node={revision}, worker={result['revision']}")
-        return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False))
+        return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False), _direct_srt(result))
+
+
+def _direct_srt(result):
+    # Partial results require explicit opt-in in Save Subtitle, not a silent
+    # partial SRT on a convenience output. Legacy snapshots need a new session.
+    if result.get("truncated") or any("text" not in s for s in result.get("segments", [])):
+        return ""
+    return render_subtitle(build_subtitles(result), "srt")
+
+
+def _write_transcript(prefix, suffix, content):
+    import folder_paths
+
+    if not isinstance(prefix, str):
+        raise ValueError("Output prefix must be text")
+    safe_prefix = re.sub(r"[^A-Za-z0-9_-]", "_", prefix).strip("_")[:64] or "r2t2_transcript"
+    data = content.encode("utf-8")
+    digest = hashlib.sha256(data).hexdigest()[:16]
+    output_dir = Path(folder_paths.get_output_directory()).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{safe_prefix}_{digest}.{suffix}"
+    if path.is_symlink():
+        raise FileExistsError(f"Refusing to follow a transcript symlink: {path}")
+    if path.exists():
+        if path.read_bytes() != data:
+            raise FileExistsError(f"Different content already exists at {path}")
+    else:
+        temp_path = None
+        try:
+            descriptor, temp_name = tempfile.mkstemp(prefix=".r2t2-", suffix=".tmp", dir=output_dir)
+            temp_path = Path(temp_name)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.link(temp_path, path)
+            except FileExistsError:
+                if path.is_symlink() or path.read_bytes() != data:
+                    raise FileExistsError(f"Different content already exists at {path}")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+    return path
+
+
+def _subtitle_ui(document, content, path):
+    return {"subtitle_preview": [content[:20000]], "subtitle_status": [document["subtitle_status"]],
+            "cue_count": [document["cue_count"]], "warnings": document["warnings"],
+            "files": ([{"filename": path.name, "subfolder": "", "type": "output"}] if path else [])}
+
+
+class R2T2Subtitle:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "result_json": ("STRING", {"forceInput": True}),
+            "format": (["srt", "vtt"],),
+            "prefix": ("STRING", {"default": "r2t2_subtitle"}),
+        }, "optional": {
+            "offset_ms": ("INT", {"default": 0, "min": -86400000, "max": 86400000,
+                                  "tooltip": "Shift all cues once. Negative times are clipped or dropped with a warning."}),
+            "chinese_chars": ("INT", {"default": 16, "min": 4, "max": 80}),
+            "english_chars": ("INT", {"default": 42, "min": 8, "max": 160}),
+            "allow_partial": ("BOOLEAN", {"default": False}),
+            "whole_audio_draft": ("BOOLEAN", {"default": False,
+                                             "tooltip": "Explicit fallback for a single-pass transcript without segments. One whole-audio cue; approximate timing."}),
+        }}
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("saved_path", "subtitle_text", "subtitle_json", "cue_count")
+    FUNCTION = "save"
+    CATEGORY = "Confucius4-R2T2"
+    OUTPUT_NODE = True
+
+    def save(self, result_json, format, prefix, offset_ms=0, chinese_chars=16,
+             english_chars=42, allow_partial=False, whole_audio_draft=False):
+        document = build_subtitles(json.loads(result_json), offset_ms=offset_ms,
+                                   chinese_chars=chinese_chars, english_chars=english_chars,
+                                   allow_partial=allow_partial, whole_audio_draft=whole_audio_draft)
+        content = render_subtitle(document, format)
+        path = _write_transcript(prefix, format, content) if document["cue_count"] else None
+        return {"ui": _subtitle_ui(document, content, path),
+                "result": (str(path) if path else "", content,
+                           json.dumps(document, ensure_ascii=False), document["cue_count"])}
 
 
 class R2T2SaveTranscript:
@@ -170,8 +259,12 @@ class R2T2SaveTranscript:
     def INPUT_TYPES(cls):
         return {"required": {
             "result_json": ("STRING", {"forceInput": True}),
-            "format": (["txt", "json"],),
+            "format": (["txt", "json", "srt", "vtt"],),
             "prefix": ("STRING", {"default": "r2t2_transcript"}),
+        }, "optional": {
+            "offset_ms": ("INT", {"default": 0, "min": -86400000, "max": 86400000}),
+            "allow_partial": ("BOOLEAN", {"default": False}),
+            "whole_audio_draft": ("BOOLEAN", {"default": False}),
         }}
 
     RETURN_TYPES = ("STRING",)
@@ -180,43 +273,22 @@ class R2T2SaveTranscript:
     CATEGORY = "Confucius4-R2T2"
     OUTPUT_NODE = True
 
-    def save(self, result_json, format, prefix):
-        import folder_paths
-
+    def save(self, result_json, format, prefix, offset_ms=0, allow_partial=False, whole_audio_draft=False):
+        if format in ("srt", "vtt"):
+            saved = R2T2Subtitle().save(result_json, format, prefix, offset_ms=offset_ms,
+                                       allow_partial=allow_partial, whole_audio_draft=whole_audio_draft)
+            return {"ui": saved["ui"], "result": (saved["result"][0],)}
         if format not in ("txt", "json"):
-            raise ValueError("Transcript format must be txt or json")
+            raise ValueError("Transcript format must be txt, json, srt or vtt")
         result = json.loads(result_json)
+        if not isinstance(result, dict):
+            raise ValueError("Transcript JSON must be an object")
         if result.get("status") not in ("complete", "finalized", "requires_review", "truncated"):
             raise ValueError("Only finalized transcripts or reviewable partial results can be saved")
-        safe_prefix = re.sub(r"[^A-Za-z0-9_-]", "_", prefix).strip("_")[:64] or "r2t2_transcript"
         content = result.get("text", "") if format == "txt" else json.dumps(result, ensure_ascii=False, indent=2)
-        digest = hashlib.sha256(result_json.encode("utf-8")).hexdigest()[:16]
-        output_dir = Path(folder_paths.get_output_directory()).resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
-        path = output_dir / f"{safe_prefix}_{digest}.{format}"
-        if path.is_symlink():
-            raise FileExistsError(f"Refusing to follow a transcript symlink: {path}")
-        if path.exists():
-            if path.read_text(encoding="utf-8") != content:
-                raise FileExistsError(f"Different content already exists at {path}")
-        else:
-            temp_path = None
-            try:
-                descriptor, temp_name = tempfile.mkstemp(prefix=".r2t2-", suffix=".tmp", dir=output_dir)
-                temp_path = Path(temp_name)
-                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                try:
-                    os.link(temp_path, path)
-                except FileExistsError:
-                    if path.is_symlink() or path.read_text(encoding="utf-8") != content:
-                        raise FileExistsError(f"Different content already exists at {path}")
-            finally:
-                if temp_path is not None:
-                    temp_path.unlink(missing_ok=True)
-        return (str(path),)
+        path = _write_transcript(prefix, format, content)
+        return {"ui": {"text": [str(path)], "files": [{"filename": path.name, "subfolder": "", "type": "output"}]},
+                "result": (str(path),)}
 
 
 class R2T2Unload:
@@ -240,6 +312,7 @@ NODE_CLASS_MAPPINGS = {name: cls for name, cls in (
     ("R2T2Transcribe", R2T2Transcribe),
     ("R2T2LiveSession", R2T2LiveSession),
     ("R2T2SaveTranscript", R2T2SaveTranscript),
+    ("R2T2Subtitle", R2T2Subtitle),
     ("R2T2Unload", R2T2Unload),
 )}
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -248,5 +321,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "R2T2Transcribe": "Confucius4 Transcribe",
     "R2T2LiveSession": "Confucius4 Live Microphone",
     "R2T2SaveTranscript": "Confucius4 Save Transcript",
+    "R2T2Subtitle": "Confucius4 Save Subtitle",
     "R2T2Unload": "Confucius4 Unload Q8",
 }
