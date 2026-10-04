@@ -8,7 +8,7 @@ The nodes provide offline and streaming file transcription, live browser-microph
 
 ## Install
 
-1. Install **Confucius4-R2T2 Q8 ASR** with ComfyUI Manager, or clone this repository into `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`.
+1. Clone this repository into `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`. Comfy Registry publishing is configured; installation through Manager search requires version approval.
 2. Install Python 3.12, Git, CMake, Visual Studio 2022 C++ Build Tools, and CUDA Toolkit 12.8. Open PowerShell in the node directory and run:
 
    ```powershell

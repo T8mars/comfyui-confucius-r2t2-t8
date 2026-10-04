@@ -8,7 +8,7 @@
 
 ## 安装
 
-1. 在 ComfyUI Manager 搜索 **Confucius4-R2T2 Q8 ASR** 安装，或将本仓库克隆到 `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`。
+1. 将本仓库克隆到 `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`。已接入 Comfy Registry 发布流程；Manager 搜索安装需要官方版本审核通过。
 2. 安装 Python 3.12、Git、CMake、Visual Studio 2022 C++ 构建工具和 CUDA Toolkit 12.8。在节点目录打开 PowerShell，运行：
 
    ```powershell
