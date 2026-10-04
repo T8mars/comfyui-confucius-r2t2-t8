@@ -44,6 +44,9 @@ class SaveTests(unittest.TestCase):
                                  "requires_review")
                 with self.assertRaises(ValueError):
                     node.save(json.dumps({"status": "active", "text": "unfinished"}), "txt", "unfinished")
+                for invalid in ({"status": []}, {"status": "complete", "text": []}):
+                    with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                        node.save(json.dumps(invalid), "txt", "invalid")
         finally:
             if previous is None:
                 del sys.modules["folder_paths"]

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from subtitles import sample_milliseconds
+
 from .native import NativeQ8Engine
 from .streaming import StreamingSession
 from .vad import FireRedOnnxVAD
@@ -220,7 +222,11 @@ class SegmentedStream:
         bounds = getattr(self.vad, "speech_bounds", lambda start, end: None)(self.segment_start, boundary)
         acoustic_bounds = bool(bounds)
         if not bounds and self._first_nonzero_sample is not None:
-            bounds = (self._first_nonzero_sample, self._last_nonzero_sample)
+            first, last = self._first_nonzero_sample, self._last_nonzero_sample
+            # A pulse can have a positive sample span but no representable
+            # millisecond interval. Keep decoder ownership as the estimate.
+            if sample_milliseconds(first) < sample_milliseconds(last):
+                bounds = (first, last)
         timing = {"timing_method": "vad_segment" if acoustic_bounds else "segment_estimate"}
         if bounds and bounds[0] < bounds[1]:
             timing.update({"speech_start_sample": bounds[0], "speech_end_sample": bounds[1]})

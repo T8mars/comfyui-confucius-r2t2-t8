@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from subtitles import build_subtitles, render_subtitle
+from export_io import atomic_write_no_overwrite
 
 
 def main() -> int:
@@ -41,27 +40,7 @@ def main() -> int:
             print("No subtitles to export (empty); no file was written")
             return 0
         destination = args.output or args.source.with_suffix(f".{args.format}")
-        data = content.encode("utf-8")
-        if destination.is_symlink():
-            raise ValueError("Refusing to follow an output symlink")
-        if destination.exists():
-            if destination.read_bytes() != data:
-                raise FileExistsError(f"Different content already exists: {destination}")
-        else:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            descriptor, temp_name = tempfile.mkstemp(prefix=".r2t2-", suffix=".tmp", dir=destination.parent)
-            try:
-                with os.fdopen(descriptor, "wb") as handle:
-                    handle.write(data)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                try:
-                    os.link(temp_name, destination)
-                except FileExistsError:
-                    if destination.is_symlink() or destination.read_bytes() != data:
-                        raise FileExistsError(f"Different content already exists: {destination}")
-            finally:
-                Path(temp_name).unlink(missing_ok=True)
+        atomic_write_no_overwrite(destination, content.encode("utf-8"))
         print(f"{destination} ({document['cue_count']} cues; {document['subtitle_status']})")
         if document["warnings"]:
             print(", ".join(document["warnings"]), file=sys.stderr)

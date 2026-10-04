@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import tempfile
 from pathlib import Path
 
 from .bridge import ROOT, WorkerError, manager
+from .export_io import atomic_write_no_overwrite
 from .hotwords import hotword_context, normalize_hotwords, read_hotword_file
 from .subtitles import build_subtitles, render_subtitle
 
@@ -166,7 +165,8 @@ class R2T2LiveSession:
             raise WorkerError(f"Live session is {result['status']}; click Stop before workflow execution")
         if int(revision) != result["revision"]:
             raise WorkerError(f"Snapshot revision mismatch: node={revision}, worker={result['revision']}")
-        return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False), _direct_srt(result))
+        srt = _direct_srt(result)
+        return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False), srt)
 
 
 def _direct_srt(result):
@@ -174,7 +174,13 @@ def _direct_srt(result):
     # partial SRT on a convenience output. Legacy snapshots need a new session.
     if result.get("truncated") or any("text" not in s for s in result.get("segments", [])):
         return ""
-    return render_subtitle(build_subtitles(result), "srt")
+    try:
+        return render_subtitle(build_subtitles(result), "srt")
+    except ValueError as error:
+        # This optional convenience output must not discard a completed ASR
+        # transcript. Explicit subtitle exporters still validate it strictly.
+        result["subtitle_export_error"] = str(error)
+        return ""
 
 
 def _write_transcript(prefix, suffix, content):
@@ -186,31 +192,8 @@ def _write_transcript(prefix, suffix, content):
     data = content.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()[:16]
     output_dir = Path(folder_paths.get_output_directory()).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{safe_prefix}_{digest}.{suffix}"
-    if path.is_symlink():
-        raise FileExistsError(f"Refusing to follow a transcript symlink: {path}")
-    if path.exists():
-        if path.read_bytes() != data:
-            raise FileExistsError(f"Different content already exists at {path}")
-    else:
-        temp_path = None
-        try:
-            descriptor, temp_name = tempfile.mkstemp(prefix=".r2t2-", suffix=".tmp", dir=output_dir)
-            temp_path = Path(temp_name)
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
-            try:
-                os.link(temp_path, path)
-            except FileExistsError:
-                if path.is_symlink() or path.read_bytes() != data:
-                    raise FileExistsError(f"Different content already exists at {path}")
-        finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
-    return path
+    return atomic_write_no_overwrite(path, data)
 
 
 def _subtitle_ui(document, content, path):
@@ -220,6 +203,12 @@ def _subtitle_ui(document, content, path):
 
 
 class R2T2Subtitle:
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # Output files can be removed or changed outside the graph. Re-run
+        # only the inexpensive save step; upstream inference stays cached.
+        return float("nan")
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -256,6 +245,10 @@ class R2T2Subtitle:
 
 class R2T2SaveTranscript:
     @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
             "result_json": ("STRING", {"forceInput": True}),
@@ -283,9 +276,11 @@ class R2T2SaveTranscript:
         result = json.loads(result_json)
         if not isinstance(result, dict):
             raise ValueError("Transcript JSON must be an object")
-        if result.get("status") not in ("complete", "finalized", "requires_review", "truncated"):
+        if not isinstance(result.get("status"), str) or result["status"] not in ("complete", "finalized", "requires_review", "truncated"):
             raise ValueError("Only finalized transcripts or reviewable partial results can be saved")
         content = result.get("text", "") if format == "txt" else json.dumps(result, ensure_ascii=False, indent=2)
+        if not isinstance(content, str):
+            raise ValueError("Transcript text must be text")
         path = _write_transcript(prefix, format, content)
         return {"ui": {"text": [str(path)], "files": [{"filename": path.name, "subfolder": "", "type": "output"}]},
                 "result": (str(path),)}

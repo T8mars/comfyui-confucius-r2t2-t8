@@ -26,6 +26,8 @@ def _text(value, name):
         raise ValueError(f"{name} must be text")
     if any(ord(char) < 32 and char not in "\r\n\t" for char in value):
         raise ValueError(f"{name} contains unsupported control characters")
+    if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+        raise ValueError(f"{name} contains an unpaired Unicode surrogate")
     return " ".join(value.split())
 
 
@@ -33,10 +35,20 @@ def _duration_samples(result):
     if "audio_samples_16k" in result:
         return _integer(result["audio_samples_16k"], "audio_samples_16k")
     seconds = result.get("audio_seconds")
-    if (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
-            or not math.isfinite(seconds) or seconds < 0):
+    if (isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds < 0):
         raise ValueError("Transcript needs a finite audio duration or audio_samples_16k")
+    if type(seconds) is int:
+        return seconds * SAMPLE_RATE
+    if not math.isfinite(seconds) or not math.isfinite(seconds * SAMPLE_RATE):
+        raise ValueError("audio_seconds cannot be represented as a finite sample duration")
     return round(seconds * SAMPLE_RATE)
+
+
+def sample_milliseconds(samples):
+    # Preserve Python round's ties-to-even policy without a float conversion.
+    quotient, remainder = divmod(samples * 1000, SAMPLE_RATE)
+    return quotient + int(remainder * 2 > SAMPLE_RATE
+                          or remainder * 2 == SAMPLE_RATE and quotient % 2 == 1)
 
 
 def _clusters(text):
@@ -94,7 +106,7 @@ def build_subtitles(result, *, offset_ms=0, chinese_chars=16, english_chars=42,
                     whole_audio_draft=False):
     if not isinstance(result, dict):
         raise ValueError("Transcript JSON must be an object")
-    if result.get("status") not in FINAL_STATUSES:
+    if not isinstance(result.get("status"), str) or result["status"] not in FINAL_STATUSES:
         raise ValueError("Only completed or finalized transcripts can become subtitles")
     for value, name in ((allow_partial, "allow_partial"), (whole_audio_draft, "whole_audio_draft")):
         if type(value) is not bool:
@@ -106,12 +118,18 @@ def build_subtitles(result, *, offset_ms=0, chinese_chars=16, english_chars=42,
     _integer(english_chars, "english_chars", minimum=1)
     _integer(max_lines, "max_lines", minimum=1)
     if (isinstance(max_cue_seconds, bool) or not isinstance(max_cue_seconds, (int, float))
-            or not math.isfinite(max_cue_seconds) or not 0.1 <= max_cue_seconds <= 120):
+            or not 0.1 <= max_cue_seconds <= 120 or not math.isfinite(max_cue_seconds)):
         raise ValueError("max_cue_seconds must be finite and between 0.1 and 120")
     full_text = _text(result.get("text", ""), "text")
     segments = result.get("segments", [])
     if not isinstance(segments, list):
         raise ValueError("segments must be a list")
+    if "truncated" in result and type(result["truncated"]) is not bool:
+        raise ValueError("truncated must be boolean")
+    for index, segment in enumerate(segments):
+        if isinstance(segment, dict) and "truncated" in segment and type(segment["truncated"]) is not bool:
+            raise ValueError(f"segments[{index}].truncated must be boolean")
+    forced_boundaries = _integer(result.get("forced_boundaries", 0), "forced_boundaries")
     partial = (result.get("truncated") is True or result.get("status") == "truncated"
                or any(isinstance(s, dict) and s.get("truncated") is True for s in segments))
     if partial and not allow_partial:
@@ -152,8 +170,8 @@ def build_subtitles(result, *, offset_ms=0, chinese_chars=16, english_chars=42,
     cues, warnings = [], set()
     clipped, dropped = 0, 0
     for start, end, text, segment_id, method in spans:
-        first = round(start * 1000 / SAMPLE_RATE)
-        last = round(end * 1000 / SAMPLE_RATE)
+        first = sample_milliseconds(start)
+        last = sample_milliseconds(end)
         if first >= last:
             raise ValueError("Subtitle interval collapses after millisecond rounding")
         first += offset_ms
@@ -168,14 +186,14 @@ def build_subtitles(result, *, offset_ms=0, chinese_chars=16, english_chars=42,
         cue_warnings = []
         if method != "forced_alignment" and method != "manual":
             cue_warnings.append("approximate_segment_timing")
-        if (last - first) / 1000 > max_cue_seconds:
+        if last - first > max_cue_seconds * 1000:
             cue_warnings.append("long_cue_needs_alignment_or_editing")
         if len(lines) > max_lines or any(_width(line) > (chinese_chars * 2 if any(
                 unicodedata.east_asian_width(c) in ("W", "F") for c in text) else english_chars) for line in lines):
             cue_warnings.append("layout_needs_review")
         if partial:
             cue_warnings.append("partial_transcript")
-        if result.get("forced_boundaries", 0):
+        if forced_boundaries:
             cue_warnings.append("forced_boundary_needs_review")
         if cues and first < cues[-1]["end_ms"]:
             raise ValueError("Subtitle intervals overlap after millisecond rounding")
@@ -212,7 +230,10 @@ def render_subtitle(document, kind="srt"):
         first, last = cue["start_ms"], cue["end_ms"]
         if first >= last:
             raise ValueError("Subtitle cue start must be before end")
-        text = "\n".join(html.escape(line, quote=False) for line in cue["lines"])
+        # WebVTT defines character references; SubRip readers such as FFmpeg
+        # display those references literally, including ordinary ampersands.
+        text = "\n".join(html.escape(line, quote=False) if kind == "vtt" else line
+                         for line in cue["lines"])
         body = f"{cue_timestamp(first, kind)} --> {cue_timestamp(last, kind)}\n{text}"
         blocks.append(f"{index}\n{body}" if kind == "srt" else body)
     return ("WEBVTT\n\n" if kind == "vtt" else "") + "\n\n".join(blocks) + "\n\n"
