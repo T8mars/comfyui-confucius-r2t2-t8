@@ -152,7 +152,10 @@ class R2T2LiveSession:
     @classmethod
     def IS_CHANGED(cls, model, language, context, session_id, revision,
                    stream_chunk_ms=320, min_segment_seconds=8):
-        return f"{session_id}:{revision}:{stream_chunk_ms}:{min_segment_seconds}:{model.get('generation', '')}"
+        # ComfyUI fingerprinting may supply None for a linked model. Read the
+        # worker's current snapshot on every run, without relying on exceptions
+        # to disable caching or on a cached loader's old generation value.
+        return float("nan")
 
     def read_snapshot(self, model, language, context, session_id, revision,
                       stream_chunk_ms=320, min_segment_seconds=8):
@@ -287,6 +290,12 @@ class R2T2SaveTranscript:
 
 
 class R2T2Unload:
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # Live controls can reload the worker outside graph execution. Always
+        # perform this side effect, even when the loader inputs are unchanged.
+        return float("nan")
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"model": ("R2T2_MODEL",)}}

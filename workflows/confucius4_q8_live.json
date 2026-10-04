@@ -342,14 +342,7 @@
         "",
         0,
         320,
-        8,
-        null,
-        null,
-        null,
-        "idle",
-        "",
-        "",
-        ""
+        8
       ],
       "widgets_values_named": {
         "language": "Auto",
@@ -357,14 +350,7 @@
         "session_id": "",
         "revision": 0,
         "stream_chunk_ms": 320,
-        "min_segment_seconds": 8,
-        "Start microphone": null,
-        "Stop and finalize": null,
-        "Cancel": null,
-        "R2T2 status": "idle",
-        "Stable text": "",
-        "Preview": "",
-        "R2T2 captions": ""
+        "min_segment_seconds": 8
       }
     },
     {

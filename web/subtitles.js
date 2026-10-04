@@ -70,6 +70,7 @@ app.registerExtension({
             // result_json placeholder and removes format. Strip only our
             // recognizable trailing placeholder BEFORE that migration runs.
             if (Array.isArray(values) && values.length === count + 1 && formats.includes(values[0])
+                    && typeof values[1] === "string"
                     && (values.at(-1) === "" || values.at(-1) == null)) {
                 info = {...info, widgets_values: values.slice(0, -1)};
                 if (info.widgets_values_named) {

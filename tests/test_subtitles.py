@@ -240,6 +240,34 @@ class SubtitleTests(unittest.TestCase):
         self.assertEqual((outputs[0], outputs[3]), ("hello", ""))
         self.assertIn("subtitle_export_error", json.loads(outputs[2]))
 
+    def test_live_linked_model_fingerprint_and_invalidated_session(self):
+        name = "subtitle_live_cache_tests"
+        spec = importlib.util.spec_from_file_location(name, ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        node = module.nodes.R2T2LiveSession()
+        # The real ComfyUI fingerprint path passes None for linked inputs.
+        # It must re-read snapshots deliberately, without an AttributeError.
+        first = node.IS_CHANGED(None, "Auto", "", "sid", 3)
+        second = node.IS_CHANGED(None, "Auto", "", "sid", 3)
+        self.assertTrue(math.isnan(first) and math.isnan(second))
+        self.assertIsNot(first, second)
+        live = {**payload("current text"), "status": "finalized", "generation": 7, "revision": 3}
+        missing = module.nodes.WorkerError("Worker 404: session removed", http_status=404,
+                                          worker_code="SESSION_NOT_FOUND")
+        with patch.object(module.nodes.manager, "generation", 7), patch.object(
+                module.nodes.manager, "session_request", side_effect=[live, missing]) as request:
+            outputs = node.read_snapshot({"generation": 7}, "Auto", "", "sid", 3)
+            self.assertEqual(outputs[0], "current text")
+            self.assertTrue(outputs[3])
+            # Unload may remove sessions without changing worker generation.
+            # A second read must propagate that loss, not return the old text.
+            with self.assertRaisesRegex(module.nodes.WorkerError, "session removed"):
+                node.read_snapshot({"generation": 7}, "Auto", "", "sid", 3)
+            self.assertEqual(request.call_count, 2)
+            request.assert_called_with("GET", "sid", "result")
+
 
 class TimingRequestTests(unittest.IsolatedAsyncioTestCase):
     async def test_short_offline_collects_subtitle_segments_only_when_requested(self):
