@@ -23,7 +23,15 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 **Drag the [file workflow](workflows/confucius4_q8_file.json) onto the ComfyUI frontend canvas.** Select your own audio in `Load Audio`, then click **Run**. Drag in the [microphone workflow](workflows/confucius4_q8_live.json), click **Start microphone**, grant browser access, then click **Stop and finalize** and **Run** to save the final transcript. Browser microphone access requires localhost or HTTPS.
 
-Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
+Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
+
+**Bulk hotwords (0.1.2):**
+
+- Paste a whole list into Transcribe's `hotwords`, separated by lines, commas, semicolons or Chinese equivalents. Spaces inside phrases are preserved.
+- Use the [shared hotword workflow](workflows/confucius4_q8_hotwords.json), edit `words` in `Confucius4 Hotwords`, and connect its output to multiple Transcribe nodes.
+- The optional `hotword_file` reads a UTF-8 TXT path relative to `ComfyUI/input`, such as `r2t2_hotwords/brands.txt`. File and pasted entries are merged and deduplicated in first-seen order. File edits take effect on the next run.
+
+TXT files are limited to 64 KiB. Context and hotwords together must fit 8192 characters including the prompt label, plus the model's token budget. Hotwords guide recognition rather than force corrections; use relevant names, brands and terms. For microphone sessions, place hotwords in Live's `context` (e.g. `Hotwords: brand A, brand B`) before starting a new session.
 
 Since **0.1.1**, `offline` files longer than 30 seconds are split with VAD and decoded once per segment, with a maximum segment length of 20 seconds. Results report `mode_executed=segmented_offline`. Earlier versions switched these files to streaming decoding, with repeated inference and accumulated caption events. `n_ctx` controls the inference context for one segment; increasing it does not remove segmentation or define the maximum file duration. File transport accepts up to 512 MiB of raw float32 PCM, so available duration depends on sample rate and channel count. `stream_chunk_ms` affects streaming mode only.
 

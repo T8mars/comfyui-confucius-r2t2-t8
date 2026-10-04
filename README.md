@@ -23,7 +23,15 @@
 
 将 [文件工作流](workflows/confucius4_q8_file.json) **拖入 ComfyUI 前端画布**，在 `Load Audio` 重新选择自己的音频，点击 **运行**。将 [麦克风工作流](workflows/confucius4_q8_live.json) 拖入画布后，在 Live 节点点击 **Start microphone**，授权麦克风；点击 **Stop and finalize** 后，再点击 **运行** 保存最终文字。浏览器麦克风需要 localhost 或 HTTPS。
 
-节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+
+**批量热词（0.1.2）**：
+
+- 直接在 Transcribe 的 `hotwords` 粘贴整份词表，用换行、逗号、分号或顿号分隔；保留英文词组中的空格。
+- 使用 [共享热词工作流](workflows/confucius4_q8_hotwords.json)，集中修改 `Confucius4 Hotwords` 的 `words`，输出可连接多个 Transcribe 节点。
+- 可选 `hotword_file` 读取 `ComfyUI/input` 下的 UTF-8 TXT 相对路径，例如 `r2t2_hotwords/brands.txt`。文件与粘贴内容合并去重，编辑文件后下次运行自动读取新内容。
+
+TXT 文件上限 64 KiB；热词与 `context` 合计上限 8192 字符（含提示标签），并需留足模型的 token 上下文。热词用于辅助识别，不是强制纠错；优先放相关人名、品牌和术语。麦克风热词写入 Live 的 `context`（如 `Hotwords: 品牌甲, 品牌乙`），开始新会话后生效。
 
 从 **0.1.1** 起，`offline` 模式处理超过 30 秒的文件时，会用 VAD 分段并对每段做一次完整离线识别，每段最多 20 秒；结果中的 `mode_executed` 为 `segmented_offline`。此前版本会改走流式解码，长文件的重复计算和字幕事件较多。`n_ctx` 是单段推理的上下文大小，增大它不会取消分段，也不决定文件能处理多少分钟。文件传输上限为 512 MiB 的原始 float32 PCM，实际可用时长取决于采样率和声道数；`stream_chunk_ms` 只影响流式模式。
 

@@ -172,8 +172,8 @@ class WorkerManager:
 
     def transcribe(self, audio: bytes, options: dict, config: dict) -> dict:
         metadata = json.dumps(options, ensure_ascii=False).encode("utf-8")
-        if len(metadata) > 16_384:
-            raise ValueError("Transcription options exceed 16 KB")
+        if len(metadata) > 65_536:
+            raise ValueError("Transcription options exceed 64 KiB")
         payload = struct.pack("<I", len(metadata)) + metadata + audio
         with self._model_lock:
             self.load(config)
