@@ -25,14 +25,16 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, `Confucius4 Save Subtitle`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
 
-### Video subtitles / SRT (0.1.6)
+### Video subtitles / SRT (0.1.7)
 
 Drag the [subtitle workflow](workflows/confucius4_q8_subtitles.json) into the frontend, choose audio or video, and click Run. Place a video in `ComfyUI/input` to select it in `Load Audio`; the first audio track is decoded without loading video frames.
 
 - Enable Transcribe's `subtitle_timings` to collect complete segment text and timings, including short files. Transcribe and finalized Live sessions now have an `srt` output; the original `text/language/result_json` output order is preserved.
 - `Save Transcript` accepts **txt/json/srt/vtt**. `Save Subtitle` also offers Chinese/English line widths, a millisecond offset, subtitle text/JSON/count outputs, and frontend preview/download. Files go into `ComfyUI/output`.
 - These are **approximate VAD/segment timings requiring review**, not word alignment. Long cues wrap and carry a warning instead of inventing evenly spaced sentence timestamps. Use `offset_ms` for audio-track delays or trimmed-video offsets.
-- Old JSON without segment text/timings requires re-transcription. `whole_audio_draft` explicitly permits a coarse whole-file cue. Truncated results require `allow_partial`; silence produces no empty file. Changed content/offsets get separate filenames, without overwriting subtitles.
+- Old JSON without segment text/timings requires re-transcription. `whole_audio_draft` explicitly permits a coarse whole-file cue. Truncated results require `allow_partial`; silence produces no empty subtitle file. Changed content/offsets get separate filenames, without overwriting subtitles.
+
+0.1.7 removes leading BOMs from pasted hotwords to prevent hidden entries and duplicate counts, and validates sample rates and file request options. Audio that becomes empty after resampling reports a clear error. Exact digital silence returns an empty transcript (`mode_executed=digital_silence`), retaining its duration without decoding; quiet nonzero audio is still recognized.
 
 0.1.6 fixes stale Live snapshots, duplicate starts and cancellation, and excludes temporary recording controls from saved workflows. Unload runs on every execution; interrupted worker connections use transport recovery. Subtitle migration also handles `srt/json` filename prefixes. Restart ComfyUI and refresh its frontend after updating. If an old file has already lost its `format`, re-import an example and set its parameters again.
 

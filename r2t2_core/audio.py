@@ -49,6 +49,8 @@ def to_mono_16k(samples: np.ndarray, sample_rate: int, channel: Channel = "mean"
         raise ValueError("Audio contains NaN or infinity")
     if sample_rate != 16_000:
         mono = np.ascontiguousarray(soxr.resample(mono, sample_rate, 16_000, quality="HQ"), dtype=np.float32)
+        if not mono.size:
+            raise ValueError("Audio is too short to resample to 16 kHz")
     return mono
 
 
@@ -56,10 +58,12 @@ def comfy_audio_to_16k(audio: dict, channel: Channel = "mean") -> np.ndarray:
     """Convert ComfyUI AUDIO waveform [batch, channels, time], requiring B=1."""
     if not isinstance(audio, dict) or "waveform" not in audio or "sample_rate" not in audio:
         raise ValueError("Expected ComfyUI AUDIO with waveform and sample_rate")
+    if type(audio["sample_rate"]) is not int:
+        raise ValueError("Audio sample_rate must be an integer")
     waveform = audio["waveform"]
     if hasattr(waveform, "detach"):
         waveform = waveform.detach().cpu().float().numpy()
     waveform = np.asarray(waveform)
     if waveform.ndim != 3 or waveform.shape[0] != 1:
         raise ValueError(f"Expected AUDIO [1, channels, time], got {waveform.shape}")
-    return to_mono_16k(waveform[0].T, int(audio["sample_rate"]), channel)
+    return to_mono_16k(waveform[0].T, audio["sample_rate"], channel)

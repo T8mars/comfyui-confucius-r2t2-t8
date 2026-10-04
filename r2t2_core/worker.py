@@ -197,11 +197,20 @@ async def transcribe(request: web.Request) -> web.Response:
     if option_size > 65_536 or len(data) < 4 + option_size:
         raise ValueError("Invalid request metadata size")
     options = json.loads(data[4:4 + option_size].decode("utf-8"))
+    if not isinstance(options, dict):
+        raise ValueError("Transcription options must be a JSON object")
+    for name in ("sample_rate", "channels"):
+        if type(options.get(name)) is not int:
+            raise ValueError(f"{name} must be an integer")
     data = data[4 + option_size:]
-    sample_rate = int(options["sample_rate"])
-    channels = int(options["channels"])
+    sample_rate = options["sample_rate"]
+    channels = options["channels"]
     channel = options.get("channel", "mean")
     mode = options.get("mode", "offline")
+    if channel not in ("mean", "left", "right"):
+        raise ValueError("channel must be mean, left or right")
+    if mode not in ("offline", "stream"):
+        raise ValueError("mode must be offline or stream")
     subtitle_timings = options.get("subtitle_timings", False)
     if type(subtitle_timings) is not bool:
         raise ValueError("subtitle_timings must be boolean")
@@ -209,6 +218,9 @@ async def transcribe(request: web.Request) -> web.Response:
     if type(stream_chunk_ms) is not int or stream_chunk_ms not in (160, 320, 480, 640):
         raise ValueError("stream_chunk_ms must be 160, 320, 480 or 640")
     language = options.get("language", "Auto")
+    if language is not None and (not isinstance(language, str)
+            or language != "Auto" and language not in SUPPORTED_LANGUAGES):
+        raise ValueError("Unsupported recognition language")
     language = None if language == "Auto" else language
     context = hotword_context(options.get("context", ""), options.get("hotwords", ""))
     pcm = await asyncio.to_thread(decode_pcm, data, sample_rate, channels, channel)
@@ -222,7 +234,15 @@ async def transcribe(request: web.Request) -> web.Response:
     zero_boundaries = exact_zero_boundaries(pcm) if len(pcm) <= 30 * 16000 and not subtitle_timings else []
     async with svc.lock:
         engine = svc.require_engine()
-        if mode == "offline" and subtitle_timings:
+        if not np.any(pcm):
+            # Exact digital silence contains no speech. Use the same empty
+            # result for short/long files and either mode; quiet nonzero audio
+            # still reaches recognition. Keep duration metadata below.
+            result = {"text": "", "language": "", "finish_reason": "stop", "truncated": False,
+                      "events": [], "segments": [], "forced_boundaries": 0,
+                      "model": engine.model_name, "projector": engine.projector_name,
+                      "mode_executed": "digital_silence"}
+        elif mode == "offline" and subtitle_timings:
             result = await asyncio.to_thread(transcribe_segmented_offline, engine, pcm, language, context)
         elif mode == "offline" and zero_boundaries:
             stops = zero_boundaries + [len(pcm)]

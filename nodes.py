@@ -112,6 +112,8 @@ class R2T2Transcribe:
         hotword_context(context, hotwords)
         if not isinstance(audio, dict) or "waveform" not in audio or "sample_rate" not in audio:
             raise ValueError("Expected ComfyUI AUDIO with waveform and sample_rate")
+        if type(audio["sample_rate"]) is not int:
+            raise ValueError("Audio sample_rate must be an integer")
         waveform = audio["waveform"]
         if hasattr(waveform, "detach"):
             waveform = waveform.detach().cpu().float().numpy()
@@ -121,7 +123,7 @@ class R2T2Transcribe:
         if waveform.shape[2] == 0 or not np.isfinite(waveform).all():
             raise ValueError("Audio must be nonempty and finite")
         pcm = np.ascontiguousarray(waveform[0].T, dtype="<f4")
-        options = {"sample_rate": int(audio["sample_rate"]), "channels": waveform.shape[1],
+        options = {"sample_rate": audio["sample_rate"], "channels": waveform.shape[1],
                    "mode": mode, "language": language, "context": context,
                    "hotwords": hotwords, "channel": channel, "auto_gain": auto_gain,
                    "stream_chunk_ms": stream_chunk_ms, "subtitle_timings": subtitle_timings}
