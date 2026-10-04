@@ -193,6 +193,24 @@ const path = require("node:path");
         current.configure(damaged);
         assert.equal(current.lastConfigureInfo, damaged);
         assert.equal(current.lastConfigureInfo.widgets_values[0], expected[1]);
+
+        // Output prefixes may legitimately equal a format. They must not make
+        // already shifted legacy values look like a valid format + prefix pair.
+        for (const prefix of Type === Node ? ["srt", "vtt"] : ["txt", "json", "srt", "vtt"]) {
+            const formatPrefix = [...expected];
+            formatPrefix[1] = prefix;
+            const normal = {widgets_values: [...formatPrefix, ""]};
+            current.configure(normal);
+            assert.deepEqual(serializeWidgets(current.widgets).widgets_values, formatPrefix);
+            assert.deepEqual(normal.widgets_values, [...formatPrefix, ""]);
+            const leading = {widgets_values: [null, ...formatPrefix]};
+            current.configure(leading);
+            assert.equal(current.lastConfigureInfo, leading);
+            assert.deepEqual(serializeWidgets(current.widgets).widgets_values, formatPrefix);
+            const shifted = {widgets_values: [...formatPrefix.slice(1), "", ""]};
+            current.configure(shifted);
+            assert.equal(current.lastConfigureInfo, shifted);
+        }
     }
     const legacyTranscript = new TranscriptNode();
     legacyTranscript.onNodeCreated();

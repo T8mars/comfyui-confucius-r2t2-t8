@@ -25,7 +25,7 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, `Confucius4 Save Subtitle`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
 
-### Video subtitles / SRT (0.1.5)
+### Video subtitles / SRT (0.1.6)
 
 Drag the [subtitle workflow](workflows/confucius4_q8_subtitles.json) into the frontend, choose audio or video, and click Run. Place a video in `ComfyUI/input` to select it in `Load Audio`; the first audio track is decoded without loading video frames.
 
@@ -34,7 +34,7 @@ Drag the [subtitle workflow](workflows/confucius4_q8_subtitles.json) into the fr
 - These are **approximate VAD/segment timings requiring review**, not word alignment. Long cues wrap and carry a warning instead of inventing evenly spaced sentence timestamps. Use `offset_ms` for audio-track delays or trimmed-video offsets.
 - Old JSON without segment text/timings requires re-transcription. `whole_audio_draft` explicitly permits a coarse whole-file cue. Truncated results require `allow_partial`; silence produces no empty file. Changed content/offsets get separate filenames, without overwriting subtitles.
 
-0.1.5 fixes shifted subtitle parameters after saving, reloading, or switching workflows, and migrates files containing the old preview placeholder. Refresh the frontend after updating. If an old file has already lost its `format`, re-import an example and set its parameters again.
+0.1.6 fixes stale Live snapshots, duplicate starts and cancellation, and excludes temporary recording controls from saved workflows. Unload runs on every execution; interrupted worker connections use transport recovery. Subtitle migration also handles `srt/json` filename prefixes. Restart ComfyUI and refresh its frontend after updating. If an old file has already lost its `format`, re-import an example and set its parameters again.
 
 0.1.4 fixes export caching, error handling, and special characters. Re-running restores moved output files while upstream recognition can remain cached. A later node failure preserves subtitles already saved in that run. Windows saving no longer requires hard links. If the convenience SRT output fails, transcription text and JSON remain available with `subtitle_export_error`; explicit subtitle export still validates strictly. SRT preserves ordinary `&` characters; players may interpret `<...>` as formatting tags. VTT uses standard character references.
 

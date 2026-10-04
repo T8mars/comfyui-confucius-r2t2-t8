@@ -1,6 +1,6 @@
 [project]
 name = "confucius4-r2t2-t8"
-version = "0.1.5"
+version = "0.1.6"
 description = "Confucius4-R2T2 GGUF Q8 speech recognition nodes for ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"

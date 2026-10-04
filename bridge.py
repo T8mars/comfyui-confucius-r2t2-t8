@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import http.client
 import json
 import os
 import secrets
@@ -138,18 +139,21 @@ class WorkerManager:
             headers={"Authorization": "Bearer " + self.token, **(headers or {})},
         )
         try:
-            with self._local_http.open(request, timeout=timeout) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:2000]
             try:
-                parsed = json.loads(detail)
-                worker_code = parsed.get("code") if isinstance(parsed, dict) else None
-            except json.JSONDecodeError:
-                worker_code = None
-            raise WorkerError(f"Worker {exc.code}: {detail}", http_status=exc.code,
-                              worker_code=worker_code if isinstance(worker_code, str) else None) from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
+                with self._local_http.open(request, timeout=timeout) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as exc:
+                # Reading an error response can itself fail if the connection
+                # breaks. The outer transport handler covers that read too.
+                detail = exc.read().decode("utf-8", "replace")[:2000]
+                try:
+                    parsed = json.loads(detail)
+                    worker_code = parsed.get("code") if isinstance(parsed, dict) else None
+                except json.JSONDecodeError:
+                    worker_code = None
+                raise WorkerError(f"Worker {exc.code}: {detail}", http_status=exc.code,
+                                  worker_code=worker_code if isinstance(worker_code, str) else None) from exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as exc:
             exit_code = request_process.poll() if request_process is not None else None
             process_state = ("unknown" if request_process is None else
                              "alive" if exit_code is None else f"exited:{exit_code}")
