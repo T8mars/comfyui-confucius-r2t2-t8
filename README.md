@@ -25,7 +25,7 @@
 
 节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript`、`Confucius4 Save Subtitle` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
 
-### 视频字幕 / SRT（0.1.4）
+### 视频字幕 / SRT（0.1.5）
 
 将 [字幕工作流](workflows/confucius4_q8_subtitles.json) 拖入前端，选择音频或视频，点击运行。视频可放进 `ComfyUI/input` 后在 `Load Audio` 选择；读取第 1 条音轨，无需解码视频帧。
 
@@ -33,6 +33,8 @@
 - `Save Transcript` 的 `format` 可选 **txt/json/srt/vtt**。`Save Subtitle` 额外提供中英文行宽、毫秒偏移、字幕文字/JSON/条数输出，以及前端预览与下载；文件保存在 `ComfyUI/output`。
 - 时间来自 VAD/识别分段，**属于近似字幕，需要校对**；没有字/词对齐。长句只换行并提示过长，不按平均时间制造逐句时标。视频有音轨延迟或截取偏移时，可用 `offset_ms` 校正。
 - 旧 JSON 缺少段文字或时间会要求重跑；`whole_audio_draft` 是显式的整段粗字幕回退。截断结果须开启 `allow_partial`，静音不生成空文件。不同偏移/内容生成不同文件，不覆盖已有字幕。
+
+0.1.5 修复保存、重新加载和切换工作流时的字幕参数错位，并兼容带旧预览占位的文件。更新后刷新前端；若旧文件的 `format` 已丢失，请重新导入示例并设置参数。
 
 0.1.4 修复导出缓存、错误提示和特殊字符：重新运行会检查并恢复已移走的输出文件，上游识别可复用缓存；后续节点失败不会清空本次已成功保存的字幕。Windows 保存不再依赖硬链接。辅助 SRT 无法生成时，仍保留识别文字与 JSON，并在 JSON 中报告 `subtitle_export_error`；显式字幕保存仍严格校验。SRT 保留普通 `&` 符号；`<...>` 可能被播放器解释为格式标签，VTT 使用标准字符引用。
 
