@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from subtitles import build_subtitles, cue_timestamp, render_subtitle, wrap_text
+from subtitles import build_subtitles, cue_timestamp, render_subtitle, sample_milliseconds, wrap_text
 from r2t2_core.segmented import PresetBoundaryVAD, SegmentedStream
 from r2t2_core.worker import Service, transcribe
 from test_offline_files import FileRequest, OfflineEngine
@@ -50,6 +51,20 @@ class SubtitleTests(unittest.TestCase):
                   "segments": stream.segments, "audio_samples_16k": 16000}
         cue = build_subtitles(result)["cues"][0]
         self.assertEqual((cue["start_ms"], cue["end_ms"]), (250, 750))
+
+    def test_tiny_fallback_uses_ownership_and_does_not_create_zero_ms_cue(self):
+        for first, last in ((8000, 8001), (24, 40)):
+            with self.subTest(first=first, last=last):
+                stream = SegmentedStream(OfflineEngine(), vad=NoBoundaryVAD(), offline=True)
+                pcm = np.zeros(16000, dtype=np.float32)
+                pcm[first:last] = .1
+                stream.feed(pcm)
+                stream.finish()
+                self.assertNotIn("speech_start_sample", stream.segments[0])
+                result = {"status": "complete", "text": stream.stable_text,
+                          "segments": stream.segments, "audio_samples_16k": 16000}
+                self.assertEqual(build_subtitles(result)["cues"][0]["end_ms"], 1000)
+                self.assertEqual(result["segments"][0]["text"], "part1")
 
     def test_draft_never_invents_time_splits_or_loses_words(self):
         result = payload("A. " + "unmapped " * 35, 30)
@@ -116,6 +131,34 @@ class SubtitleTests(unittest.TestCase):
         self.assertIn("e\u0301", "".join(wrap_text("e\u0301 long words", english_chars=4)))
         self.assertTrue(render_subtitle(build_subtitles(payload()), "vtt").startswith("WEBVTT\n\n"))
 
+    def test_srt_preserves_plain_symbols_and_vtt_uses_character_references(self):
+        document = build_subtitles(payload("Tom & Jerry / A > B / <i>literal</i>"))
+        srt = render_subtitle(document, "srt")
+        self.assertIn("Tom & Jerry / A > B", srt)
+        self.assertNotIn("&amp;", srt)
+        self.assertIn("&amp;", render_subtitle(document, "vtt"))
+        self.assertIn("&lt;i&gt;literal&lt;/i&gt;", render_subtitle(document, "vtt"))
+        self.assertEqual(srt.count(" --> "), 1)
+
+    def test_malformed_json_fields_fail_clearly_and_large_integer_timing_is_exact(self):
+        for change in ({"status": []}, {"status": {}}, {"truncated": "true"},
+                       {"forced_boundaries": "0"}, {"audio_seconds": 1e308}, {"text": "\ud800"}):
+            source = {"status": "complete", "text": "hello", "audio_seconds": 2}
+            source.update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                build_subtitles(source, whole_audio_draft=True)
+        source = payload()
+        source["segments"][0]["truncated"] = "false"
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            build_subtitles(source)
+        self.assertEqual(build_subtitles({"status": "complete", "text": "hello", "audio_seconds": 10 ** 1000},
+                                        whole_audio_draft=True)["cue_count"], 1)
+        for sample, expected in ((8, 0), (24, 2), (40, 2), (56, 4)):
+            source = payload("x")
+            source["segments"][0]["start_sample"] = sample
+            self.assertEqual(build_subtitles(source)["cues"][0]["start_ms"], expected)
+            self.assertEqual(sample_milliseconds(sample), expected)
+
     def test_nodes_share_bytes_cache_and_empty_behavior(self):
         name = "subtitle_node_tests"
         spec = importlib.util.spec_from_file_location(name, ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
@@ -128,6 +171,11 @@ class SubtitleTests(unittest.TestCase):
                 source = json.dumps(payload(), ensure_ascii=False)
                 new = module.NODE_CLASS_MAPPINGS["R2T2Subtitle"]()
                 old = module.NODE_CLASS_MAPPINGS["R2T2SaveTranscript"]()
+                for node in (new, old):
+                    first_token = node.IS_CHANGED(result_json=None, format="srt", prefix="safe")
+                    second_token = node.IS_CHANGED(result_json=None, format="srt", prefix="safe")
+                    self.assertTrue(math.isnan(first_token))
+                    self.assertIsNot(first_token, second_token)
                 first = new.save(source, "srt", "safe")
                 same = old.save(source, "srt", "safe")
                 self.assertEqual(first["result"][0], same["result"][0])
@@ -148,6 +196,49 @@ class SubtitleTests(unittest.TestCase):
                                           str(input_file), "-o", str(output)], capture_output=True, text=True)
                 self.assertEqual(process.returncode, 0, process.stderr)
                 self.assertEqual(output.read_bytes(), Path(first["result"][0]).read_bytes())
+
+    def test_cli_rejects_malformed_json_without_traceback_or_file(self):
+        changes = ({"status": []}, {"truncated": "true"}, {"forced_boundaries": []},
+                   {"audio_seconds": 1e308}, {"text": "\ud800"})
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.json"
+            output = Path(directory) / "invalid.srt"
+            for change in changes:
+                result = {"status": "complete", "text": "hello", "audio_seconds": 2}
+                result.update(change)
+                source.write_text(json.dumps(result), encoding="utf-8")
+                with self.subTest(change=change):
+                    process = subprocess.run([sys.executable, "-S", str(ROOT / "scripts/json_to_subtitle.py"),
+                                              str(source), "-o", str(output), "--whole-audio-draft"],
+                                             capture_output=True, text=True)
+                    self.assertEqual(process.returncode, 1)
+                    self.assertIn("Subtitle export failed:", process.stderr)
+                    self.assertNotIn("Traceback", process.stderr)
+                    self.assertFalse(output.exists())
+
+    def test_convenience_srt_failure_keeps_transcribe_and_live_text_json(self):
+        name = "subtitle_convenience_tests"
+        spec = importlib.util.spec_from_file_location(name, ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        invalid = payload("hello")
+        invalid["segments"][0]["end_sample"] = 1
+        with patch.object(module.nodes.manager, "transcribe", return_value=invalid):
+            outputs = module.nodes.R2T2Transcribe().transcribe(
+                {"config": {}}, {"waveform": np.zeros((1, 1, 16000)), "sample_rate": 16000},
+                "offline", "English", "", "", "mean", subtitle_timings=True)
+        self.assertEqual((outputs[0], outputs[3]), ("hello", ""))
+        saved = json.loads(outputs[2])
+        self.assertEqual(saved["status"], "complete")
+        self.assertIn("millisecond", saved["subtitle_export_error"])
+        with self.assertRaises(ValueError):
+            build_subtitles(saved)
+        live = {**invalid, "status": "finalized", "generation": 7, "revision": 3}
+        with patch.object(module.nodes.manager, "session_request", return_value=live), patch.object(module.nodes.manager, "generation", 7):
+            outputs = module.nodes.R2T2LiveSession().read_snapshot({}, "English", "", "sid", 3)
+        self.assertEqual((outputs[0], outputs[3]), ("hello", ""))
+        self.assertIn("subtitle_export_error", json.loads(outputs[2]))
 
 
 class TimingRequestTests(unittest.IsolatedAsyncioTestCase):

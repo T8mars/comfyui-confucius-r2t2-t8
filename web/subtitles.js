@@ -1,6 +1,8 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
+let activeRun = null;
+
 function clearPanel(node) {
     const panel = node.r2t2SubtitlePanel;
     if (!panel) return;
@@ -10,17 +12,48 @@ function clearPanel(node) {
     panel.download.removeAttribute("href");
 }
 
+function pendingPanel(node) {
+    clearPanel(node);
+    const panel = node.r2t2SubtitlePanel;
+    if (!panel) return;
+    panel.run = activeRun;
+    panel.completed = false;
+}
+
+function matchesRun(event, requirePromptId = false) {
+    if (!activeRun) return false;
+    const promptId = event?.detail?.prompt_id;
+    // Interrupts are broadcast to other clients. Never infer their owner from
+    // a missing ID. Legacy local hooks are handled on the node itself.
+    if (promptId == null) return !requirePromptId && activeRun.promptId == null;
+    return activeRun.promptId != null && String(promptId) === activeRun.promptId;
+}
+
+function failPendingPanels(message) {
+    for (const node of app.graph?._nodes || []) {
+        const panel = node.r2t2SubtitlePanel;
+        if (!panel || panel.run !== activeRun || panel.completed) continue;
+        clearPanel(node);
+        panel.status.textContent = message;
+    }
+}
+
 app.registerExtension({
     name: "confucius4.r2t2.subtitles",
     setup() {
-        api.addEventListener("execution_start", () => {
-            for (const node of app.graph?._nodes || []) clearPanel(node);
+        api.addEventListener("execution_start", event => {
+            const promptId = event?.detail?.prompt_id;
+            activeRun = {promptId: promptId == null ? null : String(promptId)};
+            for (const node of app.graph?._nodes || []) pendingPanel(node);
         });
-        api.addEventListener("execution_error", () => {
-            for (const node of app.graph?._nodes || []) {
-                clearPanel(node);
-                if (node.r2t2SubtitlePanel) node.r2t2SubtitlePanel.status.textContent = "Export failed / 导出失败";
-            }
+        api.addEventListener("execution_error", event => {
+            if (matchesRun(event)) failPendingPanels("Export failed / 导出失败");
+        });
+        api.addEventListener("execution_interrupted", event => {
+            if (matchesRun(event, true)) failPendingPanels("Export cancelled / 导出已取消");
+        });
+        api.addEventListener("execution_success", event => {
+            if (matchesRun(event)) activeRun = null;
         });
     },
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -41,7 +74,7 @@ app.registerExtension({
                 userSelect: "text", margin: "6px 0"});
             root.append(status, download, preview);
             this.addDOMWidget("R2T2 subtitle preview", "r2t2-subtitle", root, {serialize: false});
-            this.r2t2SubtitlePanel = {status, download, preview};
+            this.r2t2SubtitlePanel = {status, download, preview, run: null, completed: false};
             const height = nodeData.name === "R2T2Subtitle" ? 600 : 450;
             const width = nodeData.name === "R2T2Subtitle" ? 430 : 300;
             this.size = [Math.max(this.size[0], width), Math.max(this.size[1], height)];
@@ -49,13 +82,16 @@ app.registerExtension({
         const clear = clearPanel;
         const executing = nodeType.prototype.onExecutionStart;
         nodeType.prototype.onExecutionStart = function (...args) {
-            clear(this);
+            pendingPanel(this);
             return executing?.apply(this, args);
         };
         const failed = nodeType.prototype.onExecutionError;
         nodeType.prototype.onExecutionError = function (...args) {
-            clear(this);
-            if (this.r2t2SubtitlePanel) this.r2t2SubtitlePanel.status.textContent = "Export failed / 导出失败";
+            const panel = this.r2t2SubtitlePanel;
+            if (panel && !panel.completed) {
+                clear(this);
+                panel.status.textContent = "Export failed / 导出失败";
+            }
             return failed?.apply(this, args);
         };
         const executed = nodeType.prototype.onExecuted;
@@ -64,6 +100,10 @@ app.registerExtension({
             clear(this);
             const panel = this.r2t2SubtitlePanel;
             if (!panel) return;
+            // ComfyUI replays onExecuted for cached UI outputs as well. Empty
+            // exports are completed results too, even though they have no file.
+            panel.run = activeRun;
+            panel.completed = true;
             // Old workflows can restore a small node size after onNodeCreated.
             const height = nodeData.name === "R2T2Subtitle" ? 600 : 450;
             const width = nodeData.name === "R2T2Subtitle" ? 430 : 300;
