@@ -15,14 +15,57 @@ const path = require("node:path");
         .replace('import { api } from "../../scripts/api.js";', 'const api = globalThis.__subtitleApi;');
     await import("data:text/javascript," + encodeURIComponent(source));
     const chained = [];
-    class Node {
-        constructor() {this.size = [200, 100];}
-        addDOMWidget(name, type, element, options) {assert.equal(options.serialize, false);}
+    // Match frontend 1.53.6: workflow persistence skips widget.serialize,
+    // not options.serialize. Its forceInput migration runs before restoration.
+    function serializeWidgets(widgets) {
+        const saved = {widgets_values: [], widgets_values_named: {}};
+        for (const widget of widgets) {
+            if (widget.serialize === false) continue;
+            saved.widgets_values.push(widget.value ?? null);
+            saved.widgets_values_named[widget.name] = widget.value ?? null;
+        }
+        return saved;
+    }
+    function migrateForceInput(values, count) {
+        const forceInputMask = [true, ...Array(count).fill(false)];
+        return values.length === forceInputMask.length
+            ? values.filter((_, index) => !forceInputMask[index]) : values;
+    }
+    class BaseNode {
+        constructor() {
+            this.size = [200, 100];
+            this.widgets = this.constructor.initialValues.map(([name, value]) => ({name, value}));
+        }
+        addDOMWidget(name, type, element, options) {
+            assert.equal(options.serialize, false);
+            const widget = {name, type, element, options, value: ""};
+            this.widgets.push(widget);
+            return widget;
+        }
+        configure(info) {
+            this.lastConfigureInfo = info;
+            const values = migrateForceInput(info.widgets_values, this.constructor.initialValues.length);
+            let index = 0;
+            for (const widget of this.widgets) {
+                if (widget.serialize === false) continue;
+                if (index < values.length) widget.value = values[index];
+                index++;
+            }
+            return "original-configure";
+        }
         setDirtyCanvas() {}
         onNodeCreated(...args) {chained.push(["created", ...args]);}
         onExecuted(message, ...args) {chained.push(["executed", message, ...args]);}
         onExecutionStart(...args) {chained.push(["start", ...args]); return "original-start";}
         onExecutionError(...args) {chained.push(["error", ...args]); return "original-error";}
+    }
+    class Node extends BaseNode {
+        static initialValues = [["format", "srt"], ["prefix", "subtitle"], ["offset_ms", 0],
+            ["chinese_chars", 16], ["english_chars", 42], ["allow_partial", false], ["whole_audio_draft", false]];
+    }
+    class TranscriptNode extends BaseNode {
+        static initialValues = [["format", "json"], ["prefix", "transcript"], ["offset_ms", 0],
+            ["allow_partial", false], ["whole_audio_draft", false]];
     }
     extension.setup();
     await extension.beforeRegisterNodeDef(Node, {name: "R2T2Subtitle"});
@@ -105,5 +148,56 @@ const path = require("node:path");
     assert(chained.some(call => call[0] === "executed" && call[1] === message));
     assert.deepEqual(chained.find(call => call[0] === "start"), ["start", "local-start"]);
     assert.deepEqual(chained.find(call => call[0] === "error"), ["error", "local-error"]);
-    console.log("subtitle preview, download, empty, cached and prompt-scoped failure/interrupt handling pass");
+    await extension.beforeRegisterNodeDef(TranscriptNode, {name: "R2T2SaveTranscript"});
+    for (const Type of [Node, TranscriptNode]) {
+        let current = new Type();
+        current.onNodeCreated();
+        const expected = Type.initialValues.map(([, value]) => value);
+        const previewWidget = current.widgets.at(-1);
+        assert.equal(previewWidget.name, "R2T2 subtitle preview");
+        assert.equal(previewWidget.serialize, false);
+        assert.deepEqual(serializeWidgets(current.widgets).widgets_values, expected);
+        assert.equal(serializeWidgets(current.widgets).widgets_values_named[previewWidget.name], undefined);
+
+        // Real old exports contained one trailing empty DOM value. The core
+        // migration alone deletes format; the extension must strip the tail
+        // before that core migration runs, without changing source JSON.
+        const oldSaved = {widgets_values: [...expected, ""],
+            widgets_values_named: {...serializeWidgets(current.widgets).widgets_values_named,
+                "R2T2 subtitle preview": ""}};
+        assert.equal(migrateForceInput(oldSaved.widgets_values, expected.length)[0], expected[1]);
+        assert.equal(current.configure(oldSaved), "original-configure");
+        assert.deepEqual(serializeWidgets(current.widgets).widgets_values, expected);
+        assert.deepEqual(current.lastConfigureInfo.widgets_values, expected);
+        assert.deepEqual(oldSaved.widgets_values, [...expected, ""]);
+
+        // An actual legacy forceInput placeholder is at the START. It must
+        // reach ComfyUI's migration intact, not be mistaken for our preview.
+        const forceInputLegacy = {widgets_values: [null, ...expected]};
+        current.configure(forceInputLegacy);
+        assert.equal(current.lastConfigureInfo, forceInputLegacy);
+        assert.deepEqual(serializeWidgets(current.widgets).widgets_values, expected);
+
+        // Repeat workflow tab save/reload cycles using positional restoration
+        // (the named-values feature is not required for this fix).
+        for (let cycle = 0; cycle < 5; cycle++) {
+            const saved = JSON.parse(JSON.stringify(serializeWidgets(current.widgets)));
+            current = new Type();
+            current.onNodeCreated();
+            current.configure(saved);
+            assert.deepEqual(serializeWidgets(current.widgets).widgets_values, expected);
+        }
+        // Already damaged files have lost format. Preserve their error instead
+        // of guessing which format the user originally selected.
+        const damaged = {widgets_values: [...expected.slice(1), "", ""]};
+        current.configure(damaged);
+        assert.equal(current.lastConfigureInfo, damaged);
+        assert.equal(current.lastConfigureInfo.widgets_values[0], expected[1]);
+    }
+    const legacyTranscript = new TranscriptNode();
+    legacyTranscript.onNodeCreated();
+    legacyTranscript.configure({widgets_values: ["txt", "legacy-prefix"]});
+    assert.deepEqual(serializeWidgets(legacyTranscript.widgets).widgets_values,
+        ["txt", "legacy-prefix", 0, false, false]);
+    console.log("subtitle UI state, workflow persistence, legacy migration and repeated tab reload checks pass");
 })();
