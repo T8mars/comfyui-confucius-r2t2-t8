@@ -8,8 +8,8 @@
       "id": 1,
       "type": "LoadAudio",
       "pos": [
-        20,
-        30
+        0,
+        60
       ],
       "size": [
         270,
@@ -245,12 +245,12 @@
       "id": 3,
       "type": "R2T2Transcribe",
       "pos": [
-        420,
-        30
+        320,
+        40
       ],
       "size": [
-        400,
-        302
+        420,
+        440
       ],
       "flags": {},
       "order": 3,
@@ -405,6 +405,14 @@
             "name": "stream_chunk_ms"
           },
           "link": null
+        },
+        {
+          "name": "subtitle_timings",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "subtitle_timings"
+          },
+          "link": null
         }
       ],
       "outputs": [
@@ -457,6 +465,11 @@
           "links": [
             3
           ]
+        },
+        {
+          "name": "srt",
+          "type": "STRING",
+          "links": null
         }
       ],
       "properties": {
@@ -469,7 +482,8 @@
         "",
         "mean",
         false,
-        160
+        160,
+        true
       ],
       "widgets_values_named": {
         "mode": "offline",
@@ -478,19 +492,20 @@
         "hotwords": "",
         "channel": "mean",
         "auto_gain": false,
-        "stream_chunk_ms": 160
+        "stream_chunk_ms": 160,
+        "subtitle_timings": true
       }
     },
     {
       "id": 4,
       "type": "R2T2SaveTranscript",
       "pos": [
-        850,
-        30
+        790,
+        40
       ],
       "size": [
-        283.608984375,
-        82
+        300,
+        450
       ],
       "flags": {},
       "order": 4,
@@ -581,8 +596,8 @@
       "id": 5,
       "type": "R2T2Hotwords",
       "pos": [
-        20,
-        460
+        0,
+        650
       ],
       "size": [
         350,
@@ -681,7 +696,7 @@
       "scale": 0.75,
       "offset": [
         80,
-        80
+        140
       ]
     },
     "reroutes": null

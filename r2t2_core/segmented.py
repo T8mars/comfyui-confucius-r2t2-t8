@@ -139,6 +139,9 @@ class SegmentedStream:
     _has_nonzero: bool = False
     _pending_silence: bool = False
     _segment_joiner: str | None = None
+    _first_nonzero_sample: int | None = None
+    _last_nonzero_sample: int | None = None
+    _segment_samples: int = 0
 
     def __post_init__(self) -> None:
         if not 0 <= self.min_segment_seconds <= self.segment_seconds:
@@ -153,6 +156,9 @@ class SegmentedStream:
         self._leading_zero_samples = 0
         self._has_nonzero = False
         self._segment_joiner = None
+        self._first_nonzero_sample = None
+        self._last_nonzero_sample = None
+        self._segment_samples = 0
 
     def _decorate(self, local: dict, *, segment_final: bool = False, end_reason: str = "") -> dict:
         language = local.get("language") or self.detected_language or self.language
@@ -182,6 +188,12 @@ class SegmentedStream:
     def _feed_part(self, part: np.ndarray) -> list[dict]:
         if not part.size:
             return []
+        nonzero = np.flatnonzero(part)
+        if nonzero.size:
+            if self._first_nonzero_sample is None:
+                self._first_nonzero_sample = self.segment_start + self._segment_samples + int(nonzero[0])
+            self._last_nonzero_sample = self.segment_start + self._segment_samples + int(nonzero[-1]) + 1
+        self._segment_samples += len(part)
         # Exact digital zero contains no speech. Skipping only leading zero
         # samples avoids repeated full-audio ASR passes on long silent files.
         # Nonzero low-level audio is never discarded by this shortcut.
@@ -204,11 +216,21 @@ class SegmentedStream:
             reset_duration = getattr(self.vad, "reset_speech_duration", None)
             if reset_duration is not None:
                 reset_duration()
+        text = local.get("stable_text", "").strip()
+        bounds = getattr(self.vad, "speech_bounds", lambda start, end: None)(self.segment_start, boundary)
+        acoustic_bounds = bool(bounds)
+        if not bounds and self._first_nonzero_sample is not None:
+            bounds = (self._first_nonzero_sample, self._last_nonzero_sample)
+        timing = {"timing_method": "vad_segment" if acoustic_bounds else "segment_estimate"}
+        if bounds and bounds[0] < bounds[1]:
+            timing.update({"speech_start_sample": bounds[0], "speech_end_sample": bounds[1]})
         self.segments.append({"segment_id": self.segment_id, "start_sample": self.segment_start,
                               "end_sample": boundary, "end_reason": reason,
                               "skipped_zero_samples": self._leading_zero_samples,
                               "finish_reason": local.get("finish_reason"),
-                              "truncated": local.get("truncated", False)})
+                              "truncated": local.get("truncated", False),
+                              "text": text, "language": local.get("language") or self.language or "",
+                              **timing})
         self.segment_id += 1
         self.segment_start = boundary
         self._pending_silence = False

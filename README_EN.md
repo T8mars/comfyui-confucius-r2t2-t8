@@ -8,7 +8,7 @@ The nodes provide offline and streaming file transcription, live browser-microph
 
 ## Install
 
-1. Install **Confucius4-R2T2 Q8 ASR** with ComfyUI Manager, or clone this repository into `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`.
+1. Clone this repository into `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`. Comfy Registry publishing is configured; installation through Manager search requires version approval.
 2. Install Python 3.12, Git, CMake, Visual Studio 2022 C++ Build Tools, and CUDA Toolkit 12.8. Open PowerShell in the node directory and run:
 
    ```powershell
@@ -23,7 +23,25 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 **Drag the [file workflow](workflows/confucius4_q8_file.json) onto the ComfyUI frontend canvas.** Select your own audio in `Load Audio`, then click **Run**. Drag in the [microphone workflow](workflows/confucius4_q8_live.json), click **Start microphone**, grant browser access, then click **Stop and finalize** and **Run** to save the final transcript. Browser microphone access requires localhost or HTTPS.
 
-Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
+Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, `Confucius4 Save Subtitle`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
+
+### Video subtitles / SRT (0.1.3)
+
+Drag the [subtitle workflow](workflows/confucius4_q8_subtitles.json) into the frontend, choose audio or video, and click Run. Place a video in `ComfyUI/input` to select it in `Load Audio`; the first audio track is decoded without loading video frames.
+
+- Enable Transcribe's `subtitle_timings` to collect complete segment text and timings, including short files. Transcribe and finalized Live sessions now have an `srt` output; the original `text/language/result_json` output order is preserved.
+- `Save Transcript` accepts **txt/json/srt/vtt**. `Save Subtitle` also offers Chinese/English line widths, a millisecond offset, subtitle text/JSON/count outputs, and frontend preview/download. Files go into `ComfyUI/output`.
+- These are **approximate VAD/segment timings requiring review**, not word alignment. Long cues wrap and carry a warning instead of inventing evenly spaced sentence timestamps. Use `offset_ms` for audio-track delays or trimmed-video offsets.
+- Old JSON without segment text/timings requires re-transcription. `whole_audio_draft` explicitly permits a coarse whole-file cue. Truncated results require `allow_partial`; silence produces no empty file. Changed content/offsets get separate filenames, without overwriting subtitles.
+
+Convert an existing JSON containing timed segment text without model dependencies:
+
+```powershell
+python scripts/json_to_subtitle.py transcript.json --format srt --offset-ms 0
+```
+
+Word alignment, track-selection nodes, and burned-in captions are future features; individual editors' subtitle import compatibility is not yet verified.
+Frontend checks cover short MP4 and 120-second repeated-speech MP4 export, preview, download, timing offsets, and legacy workflow compatibility.
 
 **Bulk hotwords (0.1.2):**
 

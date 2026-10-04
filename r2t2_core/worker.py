@@ -202,6 +202,9 @@ async def transcribe(request: web.Request) -> web.Response:
     channels = int(options["channels"])
     channel = options.get("channel", "mean")
     mode = options.get("mode", "offline")
+    subtitle_timings = options.get("subtitle_timings", False)
+    if type(subtitle_timings) is not bool:
+        raise ValueError("subtitle_timings must be boolean")
     stream_chunk_ms = options.get("stream_chunk_ms", 160)
     if type(stream_chunk_ms) is not int or stream_chunk_ms not in (160, 320, 480, 640):
         raise ValueError("stream_chunk_ms must be 160, 320, 480 or 640")
@@ -216,10 +219,12 @@ async def transcribe(request: web.Request) -> web.Response:
     if auto_gain:
         pcm, input_gain = limited_quiet_gain(pcm)
     start = time.perf_counter()
-    zero_boundaries = exact_zero_boundaries(pcm) if len(pcm) <= 30 * 16000 else []
+    zero_boundaries = exact_zero_boundaries(pcm) if len(pcm) <= 30 * 16000 and not subtitle_timings else []
     async with svc.lock:
         engine = svc.require_engine()
-        if mode == "offline" and zero_boundaries:
+        if mode == "offline" and subtitle_timings:
+            result = await asyncio.to_thread(transcribe_segmented_offline, engine, pcm, language, context)
+        elif mode == "offline" and zero_boundaries:
             stops = zero_boundaries + [len(pcm)]
             starts = [0] + zero_boundaries
             pieces = []
@@ -230,6 +235,8 @@ async def transcribe(request: web.Request) -> web.Response:
                 pieces.append(piece)
                 segments.append({"segment_id": index, "start_sample": first,
                                  "end_sample": last, "end_reason": "digital_zero" if index < len(zero_boundaries) else "input_end",
+                                 "text": piece["text"].strip(),
+                                 "timing_method": "segment_estimate",
                                  "language": piece["language"], "finish_reason": piece["finish_reason"],
                                  "truncated": piece["truncated"]})
             languages = {piece["language"] for piece in pieces if piece["language"]}
@@ -250,7 +257,9 @@ async def transcribe(request: web.Request) -> web.Response:
         elif mode == "offline":
             result = await asyncio.to_thread(transcribe_segmented_offline, engine, pcm, language, context)
         elif mode == "stream":
-            session = (SegmentedStream(engine, language=language, context=context,
+            session = (SegmentedStream(engine, language=language, context=context, chunk_ms=stream_chunk_ms)
+                       if subtitle_timings else
+                       SegmentedStream(engine, language=language, context=context,
                                        chunk_ms=stream_chunk_ms,
                                        vad=PresetBoundaryVAD(zero_boundaries)) if zero_boundaries else
                        StreamingSession(engine, language=language, context=context,
@@ -281,6 +290,7 @@ async def transcribe(request: web.Request) -> web.Response:
                    "input_sample_rate": sample_rate, "input_samples": len(data) // (4 * channels),
                    "input_gain": round(input_gain, 6),
                    "stream_chunk_ms": stream_chunk_ms,
+                   "subtitle_timings": subtitle_timings,
                    "audio_samples_16k": len(pcm), "audio_seconds": len(pcm) / 16000,
                    "elapsed_ms": round((time.perf_counter() - start) * 1000, 1), "mode": mode})
     return web.json_response(result)

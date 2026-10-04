@@ -1,22 +1,123 @@
 {
-  "id": "188410b7-0520-4b50-9146-33453f3e8b11",
+  "id": "97a0847e-ca04-4b71-832a-b62b6d92781a",
   "revision": 0,
-  "last_node_id": 4,
-  "last_link_id": 3,
+  "last_node_id": 5,
+  "last_link_id": 4,
   "nodes": [
     {
       "id": 1,
+      "type": "LoadAudio",
+      "pos": [
+        0,
+        60
+      ],
+      "size": [
+        270,
+        136
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "showAdvanced": null,
+      "inputs": [
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "音频",
+          "locked": null,
+          "name": "audio",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          },
+          "link": null
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "音频UI",
+          "locked": null,
+          "name": "audioUI",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          },
+          "link": null
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "选择文件上传",
+          "locked": null,
+          "name": "upload",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "音频",
+          "locked": null,
+          "name": "AUDIO",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "AUDIO",
+          "pos": null,
+          "slot_index": null,
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        "r2t2_public_test.wav",
+        ""
+      ],
+      "widgets_values_named": {
+        "audio": "r2t2_public_test.wav",
+        "upload": ""
+      },
+      "title": "Load Audio / first video audio track"
+    },
+    {
+      "id": 2,
       "type": "R2T2GGUFLoader",
       "pos": [
         30,
-        50
+        350
       ],
       "size": [
         270,
         150
       ],
       "flags": {},
-      "order": 0,
+      "order": 1,
       "mode": 0,
       "showAdvanced": null,
       "inputs": [
@@ -105,7 +206,7 @@
           "pos": null,
           "slot_index": null,
           "links": [
-            1
+            2
           ]
         },
         {
@@ -142,18 +243,18 @@
       }
     },
     {
-      "id": 2,
-      "type": "R2T2LiveSession",
+      "id": 3,
+      "type": "R2T2Transcribe",
       "pos": [
         320,
         40
       ],
       "size": [
-        450,
-        580
+        420,
+        440
       ],
       "flags": {},
-      "order": 1,
+      "order": 2,
       "mode": 0,
       "showAdvanced": null,
       "inputs": [
@@ -170,7 +271,39 @@
           "shape": null,
           "type": "R2T2_MODEL",
           "pos": null,
+          "link": 2
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "audio",
+          "locked": null,
+          "name": "audio",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "AUDIO",
+          "pos": null,
           "link": 1
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "mode",
+          "locked": null,
+          "name": "mode",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "COMBO",
+          "widget": {
+            "name": "mode"
+          },
+          "link": null
         },
         {
           "color_off": null,
@@ -211,15 +344,15 @@
           "color_on": null,
           "dir": null,
           "label": null,
-          "localized_name": "session_id",
+          "localized_name": "hotwords",
           "locked": null,
-          "name": "session_id",
+          "name": "hotwords",
           "nameLocked": null,
           "removable": null,
           "shape": null,
           "type": "STRING",
           "widget": {
-            "name": "session_id"
+            "name": "hotwords"
           },
           "link": null
         },
@@ -228,15 +361,32 @@
           "color_on": null,
           "dir": null,
           "label": null,
-          "localized_name": "revision",
+          "localized_name": "channel",
           "locked": null,
-          "name": "revision",
+          "name": "channel",
           "nameLocked": null,
           "removable": null,
           "shape": null,
-          "type": "INT",
+          "type": "COMBO",
           "widget": {
-            "name": "revision"
+            "name": "channel"
+          },
+          "link": null
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "auto_gain",
+          "locked": null,
+          "name": "auto_gain",
+          "nameLocked": null,
+          "removable": null,
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "auto_gain"
           },
           "link": null
         },
@@ -258,19 +408,10 @@
           "link": null
         },
         {
-          "color_off": null,
-          "color_on": null,
-          "dir": null,
-          "label": null,
-          "localized_name": "min_segment_seconds",
-          "locked": null,
-          "name": "min_segment_seconds",
-          "nameLocked": null,
-          "removable": null,
-          "shape": 7,
-          "type": "INT",
+          "name": "subtitle_timings",
+          "type": "BOOLEAN",
           "widget": {
-            "name": "min_segment_seconds"
+            "name": "subtitle_timings"
           },
           "link": null
         }
@@ -323,8 +464,8 @@
           "pos": null,
           "slot_index": null,
           "links": [
-            2,
-            3
+            3,
+            4
           ]
         },
         {
@@ -334,41 +475,32 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "R2T2LiveSession"
+        "Node name for S&R": "R2T2Transcribe"
       },
       "widgets_values": [
+        "offline",
         "Auto",
         "",
         "",
-        0,
-        320,
-        8,
-        null,
-        null,
-        null,
-        "idle",
-        "",
-        "",
-        ""
+        "mean",
+        false,
+        160,
+        true
       ],
       "widgets_values_named": {
+        "mode": "offline",
         "language": "Auto",
         "context": "",
-        "session_id": "",
-        "revision": 0,
-        "stream_chunk_ms": 320,
-        "min_segment_seconds": 8,
-        "Start microphone": null,
-        "Stop and finalize": null,
-        "Cancel": null,
-        "R2T2 status": "idle",
-        "Stable text": "",
-        "Preview": "",
-        "R2T2 captions": ""
-      }
+        "hotwords": "",
+        "channel": "mean",
+        "auto_gain": false,
+        "stream_chunk_ms": 160,
+        "subtitle_timings": true
+      },
+      "title": "Confucius4 Transcribe - SRT segment timings"
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "R2T2SaveTranscript",
       "pos": [
         790,
@@ -379,7 +511,7 @@
         450
       ],
       "flags": {},
-      "order": 2,
+      "order": 3,
       "mode": 0,
       "showAdvanced": null,
       "inputs": [
@@ -396,7 +528,7 @@
           "shape": null,
           "type": "STRING",
           "pos": null,
-          "link": 2
+          "link": 3
         },
         {
           "color_off": null,
@@ -456,15 +588,15 @@
       },
       "widgets_values": [
         "json",
-        "r2t2_live"
+        "r2t2_ui_drag"
       ],
       "widgets_values_named": {
         "format": "json",
-        "prefix": "r2t2_live"
+        "prefix": "r2t2_ui_drag"
       }
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "R2T2Subtitle",
       "pos": [
         1140,
@@ -475,7 +607,7 @@
         600
       ],
       "flags": {},
-      "order": 3,
+      "order": 4,
       "mode": 0,
       "showAdvanced": null,
       "inputs": [
@@ -492,7 +624,7 @@
           "shape": null,
           "type": "STRING",
           "pos": null,
-          "link": 3
+          "link": 4
         },
         {
           "color_off": null,
@@ -579,23 +711,31 @@
       1,
       1,
       0,
+      3,
+      1,
+      "AUDIO"
+    ],
+    [
       2,
+      2,
+      0,
+      3,
       0,
       "R2T2_MODEL"
     ],
     [
-      2,
-      2,
-      2,
       3,
+      3,
+      2,
+      4,
       0,
       "STRING"
     ],
     [
+      4,
       3,
       2,
-      2,
-      4,
+      5,
       0,
       "STRING"
     ]
