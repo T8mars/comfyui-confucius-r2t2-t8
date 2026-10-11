@@ -19,6 +19,8 @@
 
 安装脚本将 worker 与模型放在节点目录下的 `.runtime/`、`models/`，两者均被 Git 忽略。手动接入已有 ComfyUI 源码目录可执行 `scripts/install_comfy_windows.ps1 -ComfyDir 'C:\path\to\ComfyUI'`。
 
+**预编译组件（0.1.8）**：worker 也可使用 `.runtime/worker/python.exe`，优先选择原有 `Scripts/python.exe`；`R2T2_WORKER_PYTHON` 可指定解释器。预编译原生布局使用 `.runtime/build-native-cu128/lib/` 存放匹配的运行库、`backends/` 仅存放 ggml 后端插件、`python/` 存放唯一的 `qwen3asr_native*.pyd`。成功注册的插件只加载一次；组件自行提供的 CUDA DLL 无需依赖本机 Toolkit 目录。须使用相互匹配的 Python 3.12 ABI、运行库及 GPU 架构。本仓库仍提供源码构建脚本，未新增可分发的独立整合包。
+
 ## 使用
 
 将 [文件工作流](workflows/confucius4_q8_file.json) **拖入 ComfyUI 前端画布**，在 `Load Audio` 重新选择自己的音频，点击 **运行**。将 [麦克风工作流](workflows/confucius4_q8_live.json) 拖入画布后，在 Live 节点点击 **Start microphone**，授权麦克风；点击 **Stop and finalize** 后，再点击 **运行** 保存最终文字。浏览器麦克风需要 localhost 或 HTTPS。

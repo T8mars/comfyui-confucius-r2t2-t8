@@ -19,6 +19,8 @@ The nodes provide offline and streaming file transcription, live browser-microph
 
 The worker and weights live under Git-ignored `.runtime/` and `models/` in the node directory. For a manual junction into an existing ComfyUI checkout, run `scripts/install_comfy_windows.ps1 -ComfyDir 'C:\path\to\ComfyUI'`.
 
+**Prebuilt components (0.1.8):** the worker also accepts `.runtime/worker/python.exe`, preferring the existing `Scripts/python.exe`; `R2T2_WORKER_PYTHON` overrides both. The native layout uses `.runtime/build-native-cu128/lib/` for matching runtime libraries, `backends/` for ggml backend plugins only, and `python/` for a single `qwen3asr_native*.pyd`. Successfully registered plugins load once. Bundled CUDA DLLs do not require a local Toolkit directory. Use matching Python 3.12 ABI, runtime libraries and GPU architecture. Source-build scripts remain available; this update does not provide a standalone distribution bundle.
+
 ## Use
 
 **Drag the [file workflow](workflows/confucius4_q8_file.json) onto the ComfyUI frontend canvas.** Select your own audio in `Load Audio`, then click **Run**. Drag in the [microphone workflow](workflows/confucius4_q8_live.json), click **Start microphone**, grant browser access, then click **Stop and finalize** and **Run** to save the final transcript. Browser microphone access requires localhost or HTTPS.
