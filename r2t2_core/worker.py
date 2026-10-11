@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 from aiohttp import web
 
+from hotwords import hotword_context
 from .audio import limited_quiet_gain, to_mono_16k
 from .native import NativeQ8Engine, ROOT, OFFICIAL, MODEL_NAME, PROJECTOR_NAME, SUPPORTED_LANGUAGES
 from .segmented import PresetBoundaryVAD, SegmentedStream, exact_zero_boundaries, join_segment_text
@@ -193,25 +194,35 @@ async def transcribe(request: web.Request) -> web.Response:
     if len(data) < 4:
         raise ValueError("Missing request metadata")
     option_size = struct.unpack_from("<I", data)[0]
-    if option_size > 16_384 or len(data) < 4 + option_size:
+    if option_size > 65_536 or len(data) < 4 + option_size:
         raise ValueError("Invalid request metadata size")
     options = json.loads(data[4:4 + option_size].decode("utf-8"))
+    if not isinstance(options, dict):
+        raise ValueError("Transcription options must be a JSON object")
+    for name in ("sample_rate", "channels"):
+        if type(options.get(name)) is not int:
+            raise ValueError(f"{name} must be an integer")
     data = data[4 + option_size:]
-    sample_rate = int(options["sample_rate"])
-    channels = int(options["channels"])
+    sample_rate = options["sample_rate"]
+    channels = options["channels"]
     channel = options.get("channel", "mean")
     mode = options.get("mode", "offline")
+    if channel not in ("mean", "left", "right"):
+        raise ValueError("channel must be mean, left or right")
+    if mode not in ("offline", "stream"):
+        raise ValueError("mode must be offline or stream")
+    subtitle_timings = options.get("subtitle_timings", False)
+    if type(subtitle_timings) is not bool:
+        raise ValueError("subtitle_timings must be boolean")
     stream_chunk_ms = options.get("stream_chunk_ms", 160)
     if type(stream_chunk_ms) is not int or stream_chunk_ms not in (160, 320, 480, 640):
         raise ValueError("stream_chunk_ms must be 160, 320, 480 or 640")
     language = options.get("language", "Auto")
+    if language is not None and (not isinstance(language, str)
+            or language != "Auto" and language not in SUPPORTED_LANGUAGES):
+        raise ValueError("Unsupported recognition language")
     language = None if language == "Auto" else language
-    context = options.get("context", "")
-    hotwords = options.get("hotwords", "")
-    if hotwords:
-        context = (context + "\n" if context else "") + "Hotwords: " + hotwords
-    if len(context) > 8192:
-        raise ValueError("Context/hotwords too long")
+    context = hotword_context(options.get("context", ""), options.get("hotwords", ""))
     pcm = await asyncio.to_thread(decode_pcm, data, sample_rate, channels, channel)
     auto_gain = options.get("auto_gain", True)
     if not isinstance(auto_gain, bool):
@@ -220,10 +231,20 @@ async def transcribe(request: web.Request) -> web.Response:
     if auto_gain:
         pcm, input_gain = limited_quiet_gain(pcm)
     start = time.perf_counter()
-    zero_boundaries = exact_zero_boundaries(pcm) if len(pcm) <= 30 * 16000 else []
+    zero_boundaries = exact_zero_boundaries(pcm) if len(pcm) <= 30 * 16000 and not subtitle_timings else []
     async with svc.lock:
         engine = svc.require_engine()
-        if mode == "offline" and zero_boundaries:
+        if not np.any(pcm):
+            # Exact digital silence contains no speech. Use the same empty
+            # result for short/long files and either mode; quiet nonzero audio
+            # still reaches recognition. Keep duration metadata below.
+            result = {"text": "", "language": "", "finish_reason": "stop", "truncated": False,
+                      "events": [], "segments": [], "forced_boundaries": 0,
+                      "model": engine.model_name, "projector": engine.projector_name,
+                      "mode_executed": "digital_silence"}
+        elif mode == "offline" and subtitle_timings:
+            result = await asyncio.to_thread(transcribe_segmented_offline, engine, pcm, language, context)
+        elif mode == "offline" and zero_boundaries:
             stops = zero_boundaries + [len(pcm)]
             starts = [0] + zero_boundaries
             pieces = []
@@ -234,6 +255,8 @@ async def transcribe(request: web.Request) -> web.Response:
                 pieces.append(piece)
                 segments.append({"segment_id": index, "start_sample": first,
                                  "end_sample": last, "end_reason": "digital_zero" if index < len(zero_boundaries) else "input_end",
+                                 "text": piece["text"].strip(),
+                                 "timing_method": "segment_estimate",
                                  "language": piece["language"], "finish_reason": piece["finish_reason"],
                                  "truncated": piece["truncated"]})
             languages = {piece["language"] for piece in pieces if piece["language"]}
@@ -254,7 +277,9 @@ async def transcribe(request: web.Request) -> web.Response:
         elif mode == "offline":
             result = await asyncio.to_thread(transcribe_segmented_offline, engine, pcm, language, context)
         elif mode == "stream":
-            session = (SegmentedStream(engine, language=language, context=context,
+            session = (SegmentedStream(engine, language=language, context=context, chunk_ms=stream_chunk_ms)
+                       if subtitle_timings else
+                       SegmentedStream(engine, language=language, context=context,
                                        chunk_ms=stream_chunk_ms,
                                        vad=PresetBoundaryVAD(zero_boundaries)) if zero_boundaries else
                        StreamingSession(engine, language=language, context=context,
@@ -285,6 +310,7 @@ async def transcribe(request: web.Request) -> web.Response:
                    "input_sample_rate": sample_rate, "input_samples": len(data) // (4 * channels),
                    "input_gain": round(input_gain, 6),
                    "stream_chunk_ms": stream_chunk_ms,
+                   "subtitle_timings": subtitle_timings,
                    "audio_samples_16k": len(pcm), "audio_seconds": len(pcm) / 16000,
                    "elapsed_ms": round((time.perf_counter() - start) * 1000, 1), "mode": mode})
     return web.json_response(result)
