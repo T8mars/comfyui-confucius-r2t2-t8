@@ -97,6 +97,8 @@ class R2T2Transcribe:
             "stream_chunk_ms": ("INT", {"default": 160, "min": 160, "max": 640, "step": 160}),
             "subtitle_timings": ("BOOLEAN", {"default": False,
                                              "tooltip": "Collect complete segment text and approximate VAD timings for SRT/VTT. Enable before exporting subtitles."}),
+            "unload_after": ("BOOLEAN", {"default": False,
+                                         "tooltip": "Release Q8 model memory after this file finishes when no live session is active. The next transcription reloads it; finished Live results remain available."}),
         }}
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
@@ -105,7 +107,7 @@ class R2T2Transcribe:
     CATEGORY = "Confucius4-R2T2"
 
     def transcribe(self, model, audio, mode, language, context, hotwords, channel,
-                   auto_gain=True, stream_chunk_ms=160, subtitle_timings=False):
+                   auto_gain=True, stream_chunk_ms=160, subtitle_timings=False, unload_after=False):
         import numpy as np
 
         hotwords, _ = normalize_hotwords(hotwords)
@@ -126,7 +128,8 @@ class R2T2Transcribe:
         options = {"sample_rate": audio["sample_rate"], "channels": waveform.shape[1],
                    "mode": mode, "language": language, "context": context,
                    "hotwords": hotwords, "channel": channel, "auto_gain": auto_gain,
-                   "stream_chunk_ms": stream_chunk_ms, "subtitle_timings": subtitle_timings}
+                   "stream_chunk_ms": stream_chunk_ms, "subtitle_timings": subtitle_timings,
+                   "unload_after": unload_after}
         result = manager.transcribe(pcm.tobytes(), options, model["config"])
         srt = _direct_srt(result) if subtitle_timings else ""
         return (result["text"], result.get("language", ""), json.dumps(result, ensure_ascii=False), srt)

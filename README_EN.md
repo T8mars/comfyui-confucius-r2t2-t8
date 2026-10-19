@@ -27,6 +27,8 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, `Confucius4 Save Subtitle`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
 
+**Automatic model release (0.1.9)**: Transcribe's `unload_after` defaults to off so batches reuse the model. Enable it to release Q8 weights after a successful file transcription when no Live session is in progress; the next transcription reloads them automatically. JSON reports `model_released`. Finished Live results and SRT remain readable for the existing one-hour retention period; manual `Unload Q8` still resets sessions. The CUDA context may retain some GPU memory.
+
 ### Video subtitles / SRT (0.1.7)
 
 Drag the [subtitle workflow](workflows/confucius4_q8_subtitles.json) into the frontend, choose audio or video, and click Run. Place a video in `ComfyUI/input` to select it in `Load Audio`; the first audio track is decoded without loading video frames.

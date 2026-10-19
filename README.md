@@ -27,6 +27,8 @@
 
 节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript`、`Confucius4 Save Subtitle` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
 
+**自动释放显存（0.1.9）**：Transcribe 的 `unload_after` 默认关闭，连续批量转写可复用模型；开启后，成功转写且没有进行中的 Live 会话时释放 Q8 模型，下次转写自动重新加载。JSON 的 `model_released` 表示本次是否释放。已结束的 Live 结果和 SRT 仍可读取，按原有一小时保留期过期；手动 `Unload Q8` 仍会清空会话。CUDA 上下文可能保留少量显存。
+
 ### 视频字幕 / SRT（0.1.7）
 
 将 [字幕工作流](workflows/confucius4_q8_subtitles.json) 拖入前端，选择音频或视频，点击运行。视频可放进 `ComfyUI/input` 后在 `Load Audio` 选择；读取第 1 条音轨，无需解码视频帧。
