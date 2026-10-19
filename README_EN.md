@@ -27,6 +27,8 @@ The worker and weights live under Git-ignored `.runtime/` and `models/` in the n
 
 Nodes: `Confucius4 Q8 Loader`, `Confucius4 Transcribe`, `Confucius4 Hotwords`, `Confucius4 Live Microphone`, `Confucius4 Save Transcript`, `Confucius4 Save Subtitle`, and `Confucius4 Unload Q8`. File input supports one audio item at a time (batch=1). For mostly Chinese speech with some English, try the `Chinese` language hint in file-streaming mode.
 
+**Automatic model release (0.1.9)**: Transcribe's `unload_after` defaults to off so batches reuse the model. Enable it to release Q8 weights after a successful file transcription when no Live session is in progress; the next transcription reloads them automatically. JSON reports `model_released`. Finished Live results and SRT remain readable for the existing one-hour retention period; manual `Unload Q8` still resets sessions. The CUDA context may retain some GPU memory.
+
 ### Video subtitles / SRT (0.1.7)
 
 Drag the [subtitle workflow](workflows/confucius4_q8_subtitles.json) into the frontend, choose audio or video, and click Run. Place a video in `ComfyUI/input` to select it in `Load Audio`; the first audio track is decoded without loading video frames.
@@ -59,7 +61,7 @@ Frontend checks cover short MP4 and 120-second repeated-speech MP4 export, previ
 
 TXT files are limited to 64 KiB. Context and hotwords together must fit 8192 characters including the prompt label, plus the model's token budget. Hotwords guide recognition rather than force corrections; use relevant names, brands and terms. For microphone sessions, place hotwords in Live's `context` (e.g. `Hotwords: brand A, brand B`) before starting a new session.
 
-Since **0.1.1**, `offline` files longer than 30 seconds are split with VAD and decoded once per segment, with a maximum segment length of 20 seconds. Results report `mode_executed=segmented_offline`. Earlier versions switched these files to streaming decoding, with repeated inference and accumulated caption events. `n_ctx` controls the inference context for one segment; increasing it does not remove segmentation or define the maximum file duration. File transport accepts up to 512 MiB of raw float32 PCM, so available duration depends on sample rate and channel count. `stream_chunk_ms` affects streaming mode only. `unload_after` is on by default and frees the model as soon as a transcription finishes, so turn it off to reuse a loaded model across a batch.
+Since **0.1.1**, `offline` files longer than 30 seconds are split with VAD and decoded once per segment, with a maximum segment length of 20 seconds. Results report `mode_executed=segmented_offline`. Earlier versions switched these files to streaming decoding, with repeated inference and accumulated caption events. `n_ctx` controls the inference context for one segment; increasing it does not remove segmentation or define the maximum file duration. File transport accepts up to 512 MiB of raw float32 PCM, so available duration depends on sample rate and channel count. `stream_chunk_ms` affects streaming mode only.
 
 The official Q8 files have been exercised on Windows / RTX 5090 Laptop / CUDA 12.8 for offline and streaming inference, frontend workflow drag-and-run, and a live frontend Start/Stop path with injected audio. Physical-microphone capture, accuracy on uninterrupted natural long speech, and other GPU architectures remain unverified. Forced segmentation is marked `requires_review`. Raw audio is not saved by default.
 

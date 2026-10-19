@@ -27,6 +27,8 @@
 
 节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript`、`Confucius4 Save Subtitle` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
 
+**自动释放显存（0.1.9）**：Transcribe 的 `unload_after` 默认关闭，连续批量转写可复用模型；开启后，成功转写且没有进行中的 Live 会话时释放 Q8 模型，下次转写自动重新加载。JSON 的 `model_released` 表示本次是否释放。已结束的 Live 结果和 SRT 仍可读取，按原有一小时保留期过期；手动 `Unload Q8` 仍会清空会话。CUDA 上下文可能保留少量显存。
+
 ### 视频字幕 / SRT（0.1.7）
 
 将 [字幕工作流](workflows/confucius4_q8_subtitles.json) 拖入前端，选择音频或视频，点击运行。视频可放进 `ComfyUI/input` 后在 `Load Audio` 选择；读取第 1 条音轨，无需解码视频帧。
@@ -59,7 +61,7 @@ python scripts/json_to_subtitle.py transcript.json --format srt --offset-ms 0
 
 TXT 文件上限 64 KiB；热词与 `context` 合计上限 8192 字符（含提示标签），并需留足模型的 token 上下文。热词用于辅助识别，不是强制纠错；优先放相关人名、品牌和术语。麦克风热词写入 Live 的 `context`（如 `Hotwords: 品牌甲, 品牌乙`），开始新会话后生效。
 
-从 **0.1.1** 起，`offline` 模式处理超过 30 秒的文件时，会用 VAD 分段并对每段做一次完整离线识别，每段最多 20 秒；结果中的 `mode_executed` 为 `segmented_offline`。此前版本会改走流式解码，长文件的重复计算和字幕事件较多。`n_ctx` 是单段推理的上下文大小，增大它不会取消分段，也不决定文件能处理多少分钟。文件传输上限为 512 MiB 的原始 float32 PCM，实际可用时长取决于采样率和声道数；`stream_chunk_ms` 只影响流式模式。`unload_after` 默认开启，转写结束后立即释放模型显存，连续批量转写时可关闭以复用已加载的模型。
+从 **0.1.1** 起，`offline` 模式处理超过 30 秒的文件时，会用 VAD 分段并对每段做一次完整离线识别，每段最多 20 秒；结果中的 `mode_executed` 为 `segmented_offline`。此前版本会改走流式解码，长文件的重复计算和字幕事件较多。`n_ctx` 是单段推理的上下文大小，增大它不会取消分段，也不决定文件能处理多少分钟。文件传输上限为 512 MiB 的原始 float32 PCM，实际可用时长取决于采样率和声道数；`stream_chunk_ms` 只影响流式模式。
 
 本机 Windows / RTX 5090 Laptop / CUDA 12.8 已通过官方 Q8 文件的离线与流式推理、真实 ComfyUI 前端拖入工作流并点击运行，以及注入音频的 Live Start/Stop 前端流程。物理麦克风、自然连续长语音的质量及所有 GPU 架构尚未全面验收；强制分段结果会标记 `requires_review`。默认不保存原始音频。
 

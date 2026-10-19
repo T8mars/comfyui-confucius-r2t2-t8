@@ -47,7 +47,7 @@ def decode_pcm(data: bytes, sample_rate: int, channels: int, channel: str) -> np
 
 @dataclass
 class LiveState:
-    session: SegmentedStream
+    session: SegmentedStream | None
     owner: str
     sid: str
     next_seq: int = 0
@@ -57,6 +57,7 @@ class LiveState:
     revision: int = 0
     events: list[dict] = field(default_factory=list)
     updated: float = field(default_factory=time.monotonic)
+    frozen_snapshot: dict | None = None
 
 
 class Service:
@@ -82,14 +83,23 @@ class Service:
                 elif idle > TERMINAL_RETENTION_SECONDS:
                     del self.sessions[sid]
 
-    def release(self) -> None:
-        """Drop the engine and its sessions so the native buffers leave VRAM."""
-        self.sessions.clear()
+    def has_model_lease(self) -> bool:
+        return any(s.status in ("active", "draining") for s in self.sessions.values())
+
+    def release(self, *, keep_snapshots: bool = False) -> None:
+        """Caller holds lock; detach terminal native state before dropping weights."""
+        if self.has_model_lease():
+            raise error("BUSY", "Live session has a model lease", 409)
+        if keep_snapshots:
+            for state in self.sessions.values():
+                if state.frozen_snapshot is None:
+                    state.frozen_snapshot = snapshot(state, self)
+                state.session = None
+        else:
+            self.sessions.clear()
         self.live_warmed = False
         self.engine = None
         self.model_config = None
-        # The old model and terminal session streams must release their native
-        # VRAM before anything else claims the memory.
         gc.collect()
 
     async def load(self, config: dict) -> dict:
@@ -107,18 +117,13 @@ class Service:
         if not 1 <= normalized["n_threads"] <= 64 or not -1 <= normalized["gpu_layers"] <= 99:
             raise ValueError("Invalid native thread or GPU layer count")
         async with self.lock:
-            if self.engine is not None and self.model_config != normalized and any(s.status == "active" for s in self.sessions.values()):
+            if self.engine is not None and self.model_config != normalized and self.has_model_lease():
                 raise error("BUSY", "Cannot change model while a live session is active", 409)
             if self.engine is None or self.model_config != normalized:
-                had_engine = self.engine is not None
-                self.sessions.clear()
-                self.engine = None
-                self.model_config = None
-                self.live_warmed = False
-                if had_engine:
-                    # The old model and terminal session streams must release
-                    # their native VRAM before constructing a replacement.
-                    gc.collect()
+                if self.engine is not None:
+                    self.release()
+                # An automatic release retained terminal snapshots without any
+                # engine references. Reloading must keep those results readable.
                 replacement = await asyncio.to_thread(NativeQ8Engine, **normalized)
                 self.engine = replacement
                 self.model_config = normalized
@@ -232,8 +237,8 @@ async def transcribe(request: web.Request) -> web.Response:
             or language != "Auto" and language not in SUPPORTED_LANGUAGES):
         raise ValueError("Unsupported recognition language")
     language = None if language == "Auto" else language
-    unload_after = options.get("unload_after", True)
-    if not isinstance(unload_after, bool):
+    unload_after = options.get("unload_after", False)
+    if type(unload_after) is not bool:
         raise ValueError("unload_after must be boolean")
     context = hotword_context(options.get("context", ""), options.get("hotwords", ""))
     pcm = await asyncio.to_thread(decode_pcm, data, sample_rate, channels, channel)
@@ -247,6 +252,7 @@ async def transcribe(request: web.Request) -> web.Response:
     zero_boundaries = exact_zero_boundaries(pcm) if len(pcm) <= 30 * 16000 and not subtitle_timings else []
     async with svc.lock:
         engine = svc.require_engine()
+        session = None
         if not np.any(pcm):
             # Exact digital silence contains no speech. Use the same empty
             # result for short/long files and either mode; quiet nonzero audio
@@ -314,6 +320,15 @@ async def transcribe(request: web.Request) -> web.Response:
                       "zero_split_boundaries": zero_boundaries}
         else:
             raise ValueError("mode must be offline or stream")
+        result["model_released"] = False
+        if unload_after and not svc.has_model_lease():
+            # Both locals and finalized Live sessions can retain the engine.
+            # Release within the inference lock so another load cannot replace
+            # the model and then have its replacement unloaded by this request.
+            session = None
+            engine = None
+            svc.release(keep_snapshots=True)
+            result["model_released"] = True
     quality_status = ("truncated" if result["truncated"] else
                       "forced_boundaries_unverified" if result.get("forced_boundaries", 0) else
                       "digital_zero_split" if zero_boundaries else "standard")
@@ -326,14 +341,6 @@ async def transcribe(request: web.Request) -> web.Response:
                    "subtitle_timings": subtitle_timings,
                    "audio_samples_16k": len(pcm), "audio_seconds": len(pcm) / 16000,
                    "elapsed_ms": round((time.perf_counter() - start) * 1000, 1), "mode": mode})
-    if unload_after:
-        # The model is only needed for this request. Holding it resident costs
-        # VRAM the rest of ComfyUI may want, so let it go unless a live session
-        # still holds a lease on it.
-        async with svc.lock:
-            if not any(s.status == "active" for s in svc.sessions.values()):
-                svc.release()
-                result["model_released"] = True
     return web.json_response(result)
 
 
@@ -451,6 +458,8 @@ async def cancel(request: web.Request) -> web.Response:
 
 
 def snapshot(state: LiveState, svc: Service) -> dict:
+    if state.frozen_snapshot is not None:
+        return state.frozen_snapshot
     truncated = bool(state.session.truncated)
     return {"protocol_version": VERSION, "session_id": state.sid, "generation": svc.generation,
             "status": state.status, "revision": state.revision, "text": state.session.stable_text,
@@ -479,8 +488,6 @@ async def session_status(request: web.Request) -> web.Response:
 async def unload(request: web.Request) -> web.Response:
     svc = service(request)
     async with svc.lock:
-        if any(s.status == "active" for s in svc.sessions.values()):
-            raise error("BUSY", "Live session has a model lease", 409)
         svc.release()
     return web.json_response({"loaded": False, "generation": svc.generation})
 
