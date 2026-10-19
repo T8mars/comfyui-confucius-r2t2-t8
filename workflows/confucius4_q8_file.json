@@ -1,15 +1,15 @@
 {
   "id": "cdc30fca-e5d5-45c2-8a1c-b412e56a6495",
   "revision": 0,
-  "last_node_id": 4,
-  "last_link_id": 3,
+  "last_node_id": 5,
+  "last_link_id": 4,
   "nodes": [
     {
       "id": 1,
       "type": "LoadAudio",
       "pos": [
-        30,
-        50
+        0,
+        60
       ],
       "size": [
         270,
@@ -245,12 +245,12 @@
       "id": 3,
       "type": "R2T2Transcribe",
       "pos": [
-        440,
-        50
+        320,
+        40
       ],
       "size": [
-        400,
-        302
+        420,
+        440
       ],
       "flags": {},
       "order": 2,
@@ -405,6 +405,14 @@
             "name": "stream_chunk_ms"
           },
           "link": null
+        },
+        {
+          "name": "subtitle_timings",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "subtitle_timings"
+          },
+          "link": null
         }
       ],
       "outputs": [
@@ -455,8 +463,14 @@
           "pos": null,
           "slot_index": null,
           "links": [
-            3
+            3,
+            4
           ]
+        },
+        {
+          "name": "srt",
+          "type": "STRING",
+          "links": null
         }
       ],
       "properties": {
@@ -469,7 +483,8 @@
         "",
         "mean",
         false,
-        160
+        160,
+        true
       ],
       "widgets_values_named": {
         "mode": "offline",
@@ -478,19 +493,20 @@
         "hotwords": "",
         "channel": "mean",
         "auto_gain": false,
-        "stream_chunk_ms": 160
+        "stream_chunk_ms": 160,
+        "subtitle_timings": true
       }
     },
     {
       "id": 4,
       "type": "R2T2SaveTranscript",
       "pos": [
-        850,
-        50
+        790,
+        40
       ],
       "size": [
-        283.608984375,
-        82
+        300,
+        450
       ],
       "flags": {},
       "order": 3,
@@ -576,6 +592,116 @@
         "format": "json",
         "prefix": "r2t2_ui_drag"
       }
+    },
+    {
+      "id": 5,
+      "type": "R2T2Subtitle",
+      "pos": [
+        1140,
+        40
+      ],
+      "size": [
+        430,
+        600
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "showAdvanced": null,
+      "inputs": [
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "result_json",
+          "locked": null,
+          "name": "result_json",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "STRING",
+          "pos": null,
+          "link": 4
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "format",
+          "locked": null,
+          "name": "format",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "COMBO",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "color_off": null,
+          "color_on": null,
+          "dir": null,
+          "label": null,
+          "localized_name": "prefix",
+          "locked": null,
+          "name": "prefix",
+          "nameLocked": null,
+          "removable": null,
+          "shape": null,
+          "type": "STRING",
+          "widget": {
+            "name": "prefix"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "saved_path",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "subtitle_text",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "subtitle_json",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "cue_count",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "R2T2Subtitle"
+      },
+      "widgets_values": [
+        "srt",
+        "r2t2_subtitle",
+        0,
+        16,
+        42,
+        false,
+        false
+      ],
+      "widgets_values_named": {
+        "format": "srt",
+        "prefix": "r2t2_subtitle",
+        "offset_ms": 0,
+        "chinese_chars": 16,
+        "english_chars": 42,
+        "allow_partial": false,
+        "whole_audio_draft": false
+      }
     }
   ],
   "links": [
@@ -602,6 +728,14 @@
       4,
       0,
       "STRING"
+    ],
+    [
+      4,
+      3,
+      2,
+      5,
+      0,
+      "STRING"
     ]
   ],
   "floatingLinks": null,
@@ -612,8 +746,8 @@
     "ds": {
       "scale": 0.75,
       "offset": [
-        100,
-        180
+        80,
+        140
       ]
     },
     "reroutes": null

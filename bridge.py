@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import http.client
 import json
 import os
 import secrets
@@ -17,6 +18,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SESSION_CREDENTIAL_TTL_SECONDS = 75 * 60
+
+
+def _worker_python() -> Path:
+    """The venv layout first, then the portable worker shipped with the component."""
+    base = ROOT / ".runtime" / "worker"
+    for candidate in (base / "Scripts" / "python.exe", base / "python.exe"):
+        if candidate.is_file():
+            return candidate
+    return base / "Scripts" / "python.exe"
 
 
 class WorkerError(RuntimeError):
@@ -68,7 +78,8 @@ class WorkerManager:
         if self._log_file is not None:
             self._log_file.close()
             self._log_file = None
-        python = Path(os.environ.get("R2T2_WORKER_PYTHON", ROOT / ".runtime/worker/Scripts/python.exe"))
+        override = os.environ.get("R2T2_WORKER_PYTHON")
+        python = Path(override) if override else _worker_python()
         if not python.is_file():
             raise WorkerError(f"Isolated worker Python not found: {python}. Run scripts/setup_worker_windows.ps1")
         self.port = self._port()
@@ -138,18 +149,21 @@ class WorkerManager:
             headers={"Authorization": "Bearer " + self.token, **(headers or {})},
         )
         try:
-            with self._local_http.open(request, timeout=timeout) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:2000]
             try:
-                parsed = json.loads(detail)
-                worker_code = parsed.get("code") if isinstance(parsed, dict) else None
-            except json.JSONDecodeError:
-                worker_code = None
-            raise WorkerError(f"Worker {exc.code}: {detail}", http_status=exc.code,
-                              worker_code=worker_code if isinstance(worker_code, str) else None) from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
+                with self._local_http.open(request, timeout=timeout) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as exc:
+                # Reading an error response can itself fail if the connection
+                # breaks. The outer transport handler covers that read too.
+                detail = exc.read().decode("utf-8", "replace")[:2000]
+                try:
+                    parsed = json.loads(detail)
+                    worker_code = parsed.get("code") if isinstance(parsed, dict) else None
+                except json.JSONDecodeError:
+                    worker_code = None
+                raise WorkerError(f"Worker {exc.code}: {detail}", http_status=exc.code,
+                                  worker_code=worker_code if isinstance(worker_code, str) else None) from exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as exc:
             exit_code = request_process.poll() if request_process is not None else None
             process_state = ("unknown" if request_process is None else
                              "alive" if exit_code is None else f"exited:{exit_code}")
@@ -172,8 +186,8 @@ class WorkerManager:
 
     def transcribe(self, audio: bytes, options: dict, config: dict) -> dict:
         metadata = json.dumps(options, ensure_ascii=False).encode("utf-8")
-        if len(metadata) > 16_384:
-            raise ValueError("Transcription options exceed 16 KB")
+        if len(metadata) > 65_536:
+            raise ValueError("Transcription options exceed 64 KiB")
         payload = struct.pack("<I", len(metadata)) + metadata + audio
         with self._model_lock:
             self.load(config)

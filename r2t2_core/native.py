@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import importlib
 import os
@@ -22,6 +23,9 @@ OFFICIAL = {
     PROJECTOR_NAME: (348_336_544, "8dc2c67e6a0484114928142d098db7ad94ae9f34c78948ef9d37a9678418cb65"),
 }
 _DLL_HANDLES: list[Any] = []
+_BACKEND_REGISTRIES: dict[Path, Any] = {}
+_LOADED_PLUGINS: set[Path] = set()
+_BACKEND_LOCK = threading.RLock()
 SUPPORTED_LANGUAGES = frozenset({"Chinese", "English", "Cantonese", "Japanese", "Korean",
                                  "German", "French", "Russian", "Portuguese", "Spanish", "Italian"})
 
@@ -55,6 +59,35 @@ def verify_pair(directory: Path = GGUF_DIR, *, hash_files: bool = True) -> tuple
     return paths[0], paths[1]
 
 
+def _load_backends(build: Path) -> None:
+    """Register the ggml backend plugins sitting next to the runtime libraries.
+
+    llama.cpp keeps its backends in separate libraries and only picks them up
+    through ggml_backend_load_all(), which this build does not call with a
+    usable path. Registering them here keeps CUDA available for the Q8 engine.
+    """
+    plugins = sorted((build / "backends").glob("*.dll"))
+    ggml = build / "lib" / "ggml.dll"
+    if not plugins:
+        return
+    if not ggml.is_file():
+        raise FileNotFoundError(f"Backend plugins require the matching registry DLL: {ggml}")
+    with _BACKEND_LOCK:
+        registry = _BACKEND_REGISTRIES.get(ggml)
+        if registry is None:
+            registry = ctypes.WinDLL(str(ggml))
+            registry.ggml_backend_load.restype = ctypes.c_void_p
+            registry.ggml_backend_load.argtypes = [ctypes.c_char_p]
+            # Keep the registry alive for the same lifetime as its plugins.
+            _BACKEND_REGISTRIES[ggml] = registry
+        for plugin in plugins:
+            if plugin not in _LOADED_PLUGINS:
+                # A CPU variant may return NULL on unsupported hardware. The
+                # native registry reports its reason; continue with other DLLs.
+                if registry.ggml_backend_load(str(plugin).encode("utf-8")):
+                    _LOADED_PLUGINS.add(plugin)
+
+
 def _load_extension(build: Path):
     if os.name != "nt":
         raise RuntimeError("This worker build is for Windows x64")
@@ -65,11 +98,13 @@ def _load_extension(build: Path):
     pyd_dir = pyd_files[0].parent
     dll_dirs = {p.parent for p in build.rglob("*.dll")}
     cuda_bin = Path(os.environ.get("CUDA_PATH", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8")) / "bin"
-    dll_dirs.add(cuda_bin)
+    if cuda_bin.is_dir():
+        dll_dirs.add(cuda_bin)
     for dll_dir in sorted(dll_dirs):
         _DLL_HANDLES.append(os.add_dll_directory(str(dll_dir)))
     if str(pyd_dir) not in sys.path:
         sys.path.insert(0, str(pyd_dir))
+    _load_backends(build)
     return importlib.import_module("qwen3asr_native")
 
 

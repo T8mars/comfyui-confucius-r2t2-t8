@@ -40,7 +40,8 @@ function addCaptionPanel(node) {
     Object.assign(preview.style, {whiteSpace: "pre-wrap", color: "#a6afbe", lineHeight: "1.5"});
     root.append(status, stable, preview);
     node.r2t2Panel = {status, stable, preview};
-    node.addDOMWidget("R2T2 captions", "div", root, {serialize: false});
+    const panelWidget = node.addDOMWidget("R2T2 captions", "div", root, {serialize: false});
+    if (panelWidget) panelWidget.serialize = false;
 }
 
 function cleanup(state) {
@@ -83,11 +84,22 @@ function sendPCM(node, state, pcm) {
 }
 
 async function start(node) {
-    if (node.r2t2?.ws) return;
+    // The state owns model-loading and microphone setup as well as the socket.
+    // Ignore a second click even before the first request creates its socket.
+    if (node.r2t2) return;
     const state = {seq: 0, sent: 0, acked: 0, stopping: false, finalizing: false, worklet: null, source: null,
         media: null, context: null, ws: null, flushed: null, silent: null, disposed: false,
-        connectionError: null};
+        connectionError: null, cancelled: false};
     node.r2t2 = state;
+    // Socket closure releases the active state, but this owner persists until
+    // the next Start so delayed setup failures cannot repaint newer results.
+    node.r2t2Owner = state;
+    const sessionId = widget(node, "session_id");
+    const revision = widget(node, "revision");
+    if (sessionId) sessionId.value = "";
+    if (revision) revision.value = 0;
+    setText(node, "Stable text", "");
+    setText(node, "Preview", "");
     setText(node, "R2T2 status", "loading Q8 model...");
     try {
         const config = modelConfig(node);
@@ -102,17 +114,24 @@ async function start(node) {
         if (!response.ok) throw new Error(created.message || JSON.stringify(created));
         state.sid = created.session_id;
         state.browserToken = created.browser_token;
+        if (state.cancelled || state.disposed || node.r2t2 !== state) {
+            throw new Error(state.cancelled ? "Live startup cancelled" : "Live node removed during microphone setup");
+        }
         const ws = new WebSocket(`${PROTOCOL}//${location.host}/r2t2/v1/live/${state.sid}/stream`);
         state.ws = ws;
         ws.binaryType = "arraybuffer";
         const ready = new Promise((resolve, reject) => {
             let readyResolved = false;
-            ws.onopen = () => ws.send(JSON.stringify({browser_token: state.browserToken}));
+            ws.onopen = () => {
+                if (state.cancelled || state.disposed || node.r2t2 !== state) return;
+                ws.send(JSON.stringify({browser_token: state.browserToken}));
+            };
             ws.onerror = () => {
                 state.connectionError ||= new Error("WebSocket connection failed");
                 reject(state.connectionError);
             };
             ws.onmessage = (message) => {
+                if (state.cancelled || state.disposed || node.r2t2 !== state) return;
                 const event = JSON.parse(message.data);
                 if (event.type === "ready") {
                     readyResolved = true;
@@ -152,6 +171,7 @@ async function start(node) {
             ws.onclose = () => {
                 cleanup(state);
                 reject(state.connectionError || new Error("WebSocket closed before microphone was ready"));
+                if (state.disposed || node.r2t2 !== state) return;
                 if (!state.stopping) setText(node, "R2T2 status", state.connectionError
                     ? `error: ${state.connectionError.message}` : "interrupted: WebSocket closed");
                 node.r2t2 = null;
@@ -198,21 +218,26 @@ async function start(node) {
                 clearTimeout(timeout);
             }
         }
-        node.r2t2 = null;
-        setText(node, "R2T2 status", `error: ${error.message}`);
+        if (!state.disposed && node.r2t2Owner === state) {
+            if (node.r2t2 === state) node.r2t2 = null;
+            setText(node, "R2T2 status", state.cancelled ? "cancelled" : `error: ${error.message}`);
+        }
     }
 }
 
 async function stop(node, cancel = false) {
     const state = node.r2t2;
-    if (!state || state.stopping || state.finalizing || state.ws?.readyState !== WebSocket.OPEN) return;
+    if (!state || state.stopping) return;
     if (cancel) {
+        state.cancelled = true;
         state.stopping = true;
         cleanup(state);
-        state.ws.send(JSON.stringify({type: "cancel"}));
-        setText(node, "R2T2 status", "cancelling");
+        if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify({type: "cancel"}));
+        else state.ws?.close();
+        setText(node, "R2T2 status", "cancelled");
         return;
     }
+    if (state.finalizing || state.ws?.readyState !== WebSocket.OPEN || !state.worklet) return;
     state.finalizing = true;
     setText(node, "R2T2 status", "finishing");
     try {
@@ -230,7 +255,9 @@ async function stop(node, cancel = false) {
         state.stopping = true;
         cleanup(state);
         if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify({type: "cancel"}));
-        setText(node, "R2T2 status", `error: ${error.message}`);
+        if (!state.disposed && node.r2t2Owner === state) {
+            setText(node, "R2T2 status", state.cancelled ? "cancelled" : `error: ${error.message}`);
+        }
         return;
     } finally {
         state.flushed = null;
@@ -248,17 +275,21 @@ app.registerExtension({
         const original = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function (...args) {
             original?.apply(this, args);
-            this.addWidget("button", "Start microphone", null, () => start(this));
-            this.addWidget("button", "Stop and finalize", null, () => stop(this));
-            this.addWidget("button", "Cancel", null, () => stop(this, true));
-            this.addWidget("text", "R2T2 status", "idle", () => {}, {serialize: false});
-            this.addWidget("text", "Stable text", "", () => {}, {serialize: false});
-            this.addWidget("text", "Preview", "", () => {}, {serialize: false});
+            const controls = [
+                this.addWidget("button", "Start microphone", null, () => start(this), {serialize: false}),
+                this.addWidget("button", "Stop and finalize", null, () => stop(this), {serialize: false}),
+                this.addWidget("button", "Cancel", null, () => stop(this, true), {serialize: false}),
+                this.addWidget("text", "R2T2 status", "idle", () => {}, {serialize: false}),
+                this.addWidget("text", "Stable text", "", () => {}, {serialize: false}),
+                this.addWidget("text", "Preview", "", () => {}, {serialize: false}),
+            ];
+            for (const control of controls) control.serialize = false;
             addCaptionPanel(this);
             this.size = [Math.max(this.size[0], 420), Math.max(this.size[1], 560)];
         };
         const removed = nodeType.prototype.onRemoved;
         nodeType.prototype.onRemoved = function (...args) {
+            if (this.r2t2Owner) this.r2t2Owner.disposed = true;
             if (this.r2t2) {
                 this.r2t2.disposed = true;
                 if (this.r2t2.ws?.readyState === WebSocket.OPEN) {

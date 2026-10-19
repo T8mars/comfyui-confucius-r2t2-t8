@@ -92,11 +92,12 @@ class OfflineFileTests(unittest.IsolatedAsyncioTestCase):
     async def test_digital_silence_skips_asr_without_forced_quality_warning(self):
         result, engine = await self.run_file(31, silence=True)
         self.assertEqual(engine.calls, [])
-        self.assertEqual(result["mode_executed"], "segmented_offline")
+        self.assertEqual(result["mode_executed"], "digital_silence")
         self.assertEqual(result["text"], "")
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["forced_boundaries"], 0)
-        self.assertEqual(sum(s["skipped_zero_samples"] for s in result["segments"]), 31 * 16000)
+        self.assertEqual(result["audio_samples_16k"], 31 * 16000)
+        self.assertEqual(result["segments"], [])
 
 
 if __name__ == "__main__":

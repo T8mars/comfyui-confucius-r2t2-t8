@@ -53,10 +53,12 @@ async function main() {
     globalThis.WebSocket = FakeWebSocket;
     const source = fs.readFileSync(path.join(__dirname, "../web/r2t2.js"), "utf8")
         .replace('import { app } from "../../scripts/app.js";',
-            "const app = globalThis.__testApp;");
+            "const app = globalThis.__testApp;")
+        .replace('new URL("./r2t2-worklet.js", import.meta.url)', '"http://localhost/worklet.js"');
     await import("data:text/javascript," + encodeURIComponent(source));
     class FakeNode {
-        constructor() { this.widgets = []; this.inputs = [{name: "model", link: 1}]; this.size = [200, 100]; }
+        constructor() { this.widgets = [{name: "session_id", value: "previous-finalized"},
+            {name: "revision", value: 7}]; this.inputs = [{name: "model", link: 1}]; this.size = [200, 100]; }
         addWidget(type, name, value, callback) {
             const item = {type, name, value, callback};
             this.widgets.push(item);
@@ -92,13 +94,55 @@ async function main() {
     await Promise.race([requested, new Promise((_, reject) =>
         setTimeout(() => reject(new Error("getUserMedia was not reached")), 1000))]);
     const ws = sockets.at(-1);
+    const releaseOldMedia = releaseMedia;
     ws.emitError("STREAM_ERROR");
     ws.close();
-    releaseMedia({getTracks() { return [{stop() {}}]; }});
+    // A later Start can begin while the old getUserMedia promise is unresolved.
+    // That old catch/onclose must not clear or repaint the replacement state.
+    const replacementStart = start(node);
+    await new Promise(resolve => setImmediate(resolve));
+    const replacementState = node.r2t2;
+    const replacementSocket = sockets.at(-1);
+    const releaseReplacementMedia = releaseMedia;
+    assert.notEqual(replacementSocket, ws);
+    ws.onmessage?.({data: JSON.stringify({type: "final", revision: 99, text: "stale final"})});
+    assert.equal(node.widgets.find(item => item.name === "session_id").value, "");
+    releaseOldMedia({getTracks() { return [{stop() {}}]; }});
     await started;
+    assert.equal(node.r2t2, replacementState);
+    assert.doesNotMatch(status(node), /gateway rejected STREAM_ERROR/);
+    replacementSocket.emitError("STREAM_ERROR");
+    replacementSocket.close();
+    releaseReplacementMedia({getTracks() { return [{stop() {}}]; }});
+    await replacementStart;
     assert.match(status(node), /STREAM_ERROR/);
     assert.match(status(node), /gateway rejected STREAM_ERROR/);
     assert.doesNotMatch(status(node), /Live connection closed during microphone setup/);
+
+    Object.defineProperty(globalThis, "navigator", {configurable: true, value: {
+        mediaDevices: {async getUserMedia() {return {getTracks() {return [{stop() {}}];}};}}}});
+    globalThis.AudioContext = class {
+        constructor() {this.audioWorklet = {async addModule() {}}; this.destination = {};}
+        createMediaStreamSource() {return {connect() {}, disconnect() {}};}
+        createGain() {return {gain: {}, connect() {}, disconnect() {}};}
+        async close() {}
+    };
+    globalThis.AudioWorkletNode = class {
+        constructor() {this.port = {};}
+        connect(gain) {return gain;}
+        disconnect() {}
+    };
+    const completedNode = makeNode();
+    await start(completedNode);
+    assert.equal(completedNode.widgets.find(item => item.name === "session_id").value, "");
+    assert.equal(completedNode.widgets.find(item => item.name === "revision").value, 0);
+    const finalSocket = sockets.at(-1);
+    finalSocket.onmessage({data: JSON.stringify({type: "final", revision: 11,
+        text: "current finalized text", quality_status: "standard"})});
+    assert.equal(completedNode.widgets.find(item => item.name === "session_id").value, "sid");
+    assert.equal(completedNode.widgets.find(item => item.name === "revision").value, 11);
+    assert.equal(completedNode.r2t2Panel.stable.textContent, "current finalized text");
+    finalSocket.close();
     console.log("Live UI gateway error propagation checks passed");
 }
 

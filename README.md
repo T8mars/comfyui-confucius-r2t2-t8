@@ -8,7 +8,7 @@
 
 ## 安装
 
-1. 在 ComfyUI Manager 搜索 **Confucius4-R2T2 Q8 ASR** 安装，或将本仓库克隆到 `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`。
+1. 将本仓库克隆到 `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`。已接入 Comfy Registry 发布流程；Manager 搜索安装需要官方版本审核通过。
 2. 安装 Python 3.12、Git、CMake、Visual Studio 2022 C++ 构建工具和 CUDA Toolkit 12.8。在节点目录打开 PowerShell，运行：
 
    ```powershell
@@ -19,11 +19,45 @@
 
 安装脚本将 worker 与模型放在节点目录下的 `.runtime/`、`models/`，两者均被 Git 忽略。手动接入已有 ComfyUI 源码目录可执行 `scripts/install_comfy_windows.ps1 -ComfyDir 'C:\path\to\ComfyUI'`。
 
+**预编译组件（0.1.8）**：worker 也可使用 `.runtime/worker/python.exe`，优先选择原有 `Scripts/python.exe`；`R2T2_WORKER_PYTHON` 可指定解释器。预编译原生布局使用 `.runtime/build-native-cu128/lib/` 存放匹配的运行库、`backends/` 仅存放 ggml 后端插件、`python/` 存放唯一的 `qwen3asr_native*.pyd`。成功注册的插件只加载一次；组件自行提供的 CUDA DLL 无需依赖本机 Toolkit 目录。须使用相互匹配的 Python 3.12 ABI、运行库及 GPU 架构。本仓库仍提供源码构建脚本，未新增可分发的独立整合包。
+
 ## 使用
 
 将 [文件工作流](workflows/confucius4_q8_file.json) **拖入 ComfyUI 前端画布**，在 `Load Audio` 重新选择自己的音频，点击 **运行**。将 [麦克风工作流](workflows/confucius4_q8_live.json) 拖入画布后，在 Live 节点点击 **Start microphone**，授权麦克风；点击 **Stop and finalize** 后，再点击 **运行** 保存最终文字。浏览器麦克风需要 localhost 或 HTTPS。
 
-节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+节点包括 `Confucius4 Q8 Loader`、`Confucius4 Transcribe`、`Confucius4 Hotwords`、`Confucius4 Live Microphone`、`Confucius4 Save Transcript`、`Confucius4 Save Subtitle` 和 `Confucius4 Unload Q8`。单次文件输入仅支持一段音频（batch=1）。中文为主、夹少量英文的文件流式音频可尝试 `Chinese` 语言提示。
+
+### 视频字幕 / SRT（0.1.7）
+
+将 [字幕工作流](workflows/confucius4_q8_subtitles.json) 拖入前端，选择音频或视频，点击运行。视频可放进 `ComfyUI/input` 后在 `Load Audio` 选择；读取第 1 条音轨，无需解码视频帧。
+
+- Transcribe 开启 `subtitle_timings`，短文件也会收集完整段文本与时间。新增 `srt` 输出；Live 结束后同样输出 SRT。原 `text/language/result_json` 输出顺序保持兼容。
+- `Save Transcript` 的 `format` 可选 **txt/json/srt/vtt**。`Save Subtitle` 额外提供中英文行宽、毫秒偏移、字幕文字/JSON/条数输出，以及前端预览与下载；文件保存在 `ComfyUI/output`。
+- 时间来自 VAD/识别分段，**属于近似字幕，需要校对**；没有字/词对齐。长句只换行并提示过长，不按平均时间制造逐句时标。视频有音轨延迟或截取偏移时，可用 `offset_ms` 校正。
+- 旧 JSON 缺少段文字或时间会要求重跑；`whole_audio_draft` 是显式的整段粗字幕回退。截断结果须开启 `allow_partial`，静音不生成空字幕文件。不同偏移/内容生成不同文件，不覆盖已有字幕。
+
+0.1.7 修复热词粘贴中的前导 BOM，避免隐藏词和重复计数；采样率及文件请求参数会严格校验。重采样后为空的极短音频会明确报错。精确全零的文件音频直接返回空转录（`mode_executed=digital_silence`），保留时长并跳过解码；低音量非零音频仍会识别。
+
+0.1.6 修复实时会话的旧文字残留、重复启动和取消流程，工作流不再保存临时录音控件。模型卸载每次运行都会执行；worker 连接中断会进入恢复流程。字幕迁移兼容 `srt/json` 文件名前缀。更新后重启 ComfyUI 并刷新前端；若旧文件的 `format` 已丢失，请重新导入示例并设置参数。
+
+0.1.4 修复导出缓存、错误提示和特殊字符：重新运行会检查并恢复已移走的输出文件，上游识别可复用缓存；后续节点失败不会清空本次已成功保存的字幕。Windows 保存不再依赖硬链接。辅助 SRT 无法生成时，仍保留识别文字与 JSON，并在 JSON 中报告 `subtitle_export_error`；显式字幕保存仍严格校验。SRT 保留普通 `&` 符号；`<...>` 可能被播放器解释为格式标签，VTT 使用标准字符引用。
+
+也可离线转换已保存的、有段文本和时间的 JSON：
+
+```powershell
+python scripts/json_to_subtitle.py transcript.json --format srt --offset-ms 0
+```
+
+字/词精确对齐、音轨选择节点和字幕烧录属于后续功能；各剪辑软件的字幕导入兼容性尚未逐一验证。
+已在 ComfyUI 前端验证短 MP4 与 120 秒重复语音 MP4 的导出、预览、下载、时间偏移及旧工作流兼容性。
+
+**批量热词（0.1.2）**：
+
+- 直接在 Transcribe 的 `hotwords` 粘贴整份词表，用换行、逗号、分号或顿号分隔；保留英文词组中的空格。
+- 使用 [共享热词工作流](workflows/confucius4_q8_hotwords.json)，集中修改 `Confucius4 Hotwords` 的 `words`，输出可连接多个 Transcribe 节点。
+- 可选 `hotword_file` 读取 `ComfyUI/input` 下的 UTF-8 TXT 相对路径，例如 `r2t2_hotwords/brands.txt`。文件与粘贴内容合并去重，编辑文件后下次运行自动读取新内容。
+
+TXT 文件上限 64 KiB；热词与 `context` 合计上限 8192 字符（含提示标签），并需留足模型的 token 上下文。热词用于辅助识别，不是强制纠错；优先放相关人名、品牌和术语。麦克风热词写入 Live 的 `context`（如 `Hotwords: 品牌甲, 品牌乙`），开始新会话后生效。
 
 从 **0.1.1** 起，`offline` 模式处理超过 30 秒的文件时，会用 VAD 分段并对每段做一次完整离线识别，每段最多 20 秒；结果中的 `mode_executed` 为 `segmented_offline`。此前版本会改走流式解码，长文件的重复计算和字幕事件较多。`n_ctx` 是单段推理的上下文大小，增大它不会取消分段，也不决定文件能处理多少分钟。文件传输上限为 512 MiB 的原始 float32 PCM，实际可用时长取决于采样率和声道数；`stream_chunk_ms` 只影响流式模式。`unload_after` 默认开启，转写结束后立即释放模型显存，连续批量转写时可关闭以复用已加载的模型。
 
