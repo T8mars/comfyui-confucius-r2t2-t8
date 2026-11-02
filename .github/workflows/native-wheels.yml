@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-22.04
     container: quay.io/pypa/manylinux_2_28_x86_64
     timeout-minutes: 45
-    env:
-      PATH: /opt/python/cp312-cp312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
+      - name: Select CPython without replacing the compiler PATH
+        run: echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
       - name: Fetch pinned llama.cpp
         run: |
           git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git .reference/llama.cpp
