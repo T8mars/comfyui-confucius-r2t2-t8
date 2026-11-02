@@ -76,5 +76,5 @@ if(R2T2_WHEEL_BUILD)
         COMPONENT r2t2-native)
     install(FILES "${LLAMA_CPP_DIR}/LICENSE" DESTINATION r2t2_native/licenses
         RENAME llama.cpp-LICENSE COMPONENT r2t2-native)
-    install(FILES LICENSE NOTICE.md DESTINATION r2t2_native/licenses COMPONENT r2t2-native)
+    install(FILES LICENSE NOTICE.md THIRD_PARTY_NOTICES.txt DESTINATION r2t2_native/licenses COMPONENT r2t2-native)
 endif()

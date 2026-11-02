@@ -116,6 +116,24 @@ class PlatformRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Toolkit 12.8"):
                 setup.cuda_toolchain("toolkit")
 
+    def test_windows_cuda_source_build_uses_a_visual_studio_toolset_not_ninja(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".reference/llama.cpp").mkdir(parents=True)
+            (root / ".reference/llama.cpp/CMakeLists.txt").touch()
+            destination = root / ".runtime/wheels/cuda"
+            destination.mkdir(parents=True)
+            wheel = destination / "confucius_r2t2_native-0.2.0-1cu128-cp312-cp312-win_amd64.whl"
+            wheel.touch()
+            with patch.object(setup, "ROOT", root), patch.object(setup.sys, "platform", "win32"), \
+                    patch.object(setup.subprocess, "check_output", return_value=setup.LLAMA_COMMIT), \
+                    patch.object(setup, "cuda_toolchain", return_value=(root / "cuda", "12.8")), \
+                    patch.object(setup, "run") as execute:
+                self.assertEqual(setup.source_wheel(Path("python"), "cuda", "86"), wheel)
+            selected = execute.call_args.kwargs["env"]
+            self.assertEqual(selected["CMAKE_GENERATOR"], "Visual Studio 17 2022")
+            self.assertEqual(selected["CMAKE_GENERATOR_TOOLSET"], "cuda=12.8")
+
 
 if __name__ == "__main__":
     unittest.main()

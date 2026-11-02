@@ -23,6 +23,7 @@ def main():
             raise ValueError(f"Unexpected distribution/version: {path.name}")
         with zipfile.ZipFile(path) as package:
             info = json.loads(package.read("r2t2_native/build-info.json"))
+            package.getinfo("r2t2_native/licenses/THIRD_PARTY_NOTICES.txt")
             if info["llama_commit"] != LLAMA_COMMIT or info["api_version"] != 1:
                 raise ValueError(f"Wrong source/ABI in {path.name}")
             if any(n.lower().endswith(".exe") for n in package.namelist()):

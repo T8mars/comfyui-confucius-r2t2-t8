@@ -20,7 +20,7 @@ build.targets = ["qwen3asr_native"]
 install.components = ["r2t2-native"]
 wheel.packages = ["r2t2_native"]
 wheel.build-tag = "1cpu"
-sdist.include = ["CMakeLists.txt", "native_ext.cpp", "r2t2_native/**", "LICENSE", "NOTICE.md"]
+sdist.include = ["CMakeLists.txt", "native_ext.cpp", "r2t2_native/**", "LICENSE", "NOTICE.md", "THIRD_PARTY_NOTICES.txt"]
 
 [tool.scikit-build.cmake.define]
 R2T2_WHEEL_BUILD = "ON"

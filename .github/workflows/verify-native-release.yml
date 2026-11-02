@@ -18,6 +18,10 @@ on:
         default: all
         type: choice
         options: [all, cpu, cuda]
+      public_setup:
+        description: Exercise the anonymous public setup command instead of downloading draft assets
+        default: false
+        type: boolean
 
 permissions:
   # GitHub only exposes unpublished draft assets to tokens with repository write
@@ -43,12 +47,14 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag || 'native-v0.2.0' }}
       NATIVE_BACKEND: ${{ matrix.backend }}
       PYTHONIOENCODING: utf-8
+      USE_PUBLIC_SETUP: ${{ inputs.public_setup && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Select the platform wheel from the release manifest
+        if: inputs.public_setup != true
         run: |
           python -m pip install packaging==25.0
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern native-wheels.json --dir .runtime/release-download
@@ -64,6 +70,7 @@ jobs:
               out.write('NATIVE_WHEEL_SHA256='+wheel['sha256']+'\n')
           PY
       - name: Download and verify the selected wheel
+        if: inputs.public_setup != true
         run: |
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$NATIVE_WHEEL_NAME" --dir .runtime/release-download
           python - <<'PY'
@@ -75,7 +82,11 @@ jobs:
       - name: Install without compiling or selecting a CUDA Toolkit directory
         run: |
           unset CUDA_PATH CUDA_HOME LD_LIBRARY_PATH
-          python scripts/setup_worker.py --backend "$NATIVE_BACKEND" --wheel ".runtime/release-download/$NATIVE_WHEEL_NAME"
+          if [ "$USE_PUBLIC_SETUP" = true ]; then
+            python scripts/setup_worker.py --backend "$NATIVE_BACKEND"
+          else
+            python scripts/setup_worker.py --backend "$NATIVE_BACKEND" --wheel ".runtime/release-download/$NATIVE_WHEEL_NAME"
+          fi
       - name: Real Q8 nodes, stream, Live retention and SRT
         run: |
           unset CUDA_PATH CUDA_HOME LD_LIBRARY_PATH

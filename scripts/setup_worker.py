@@ -160,16 +160,19 @@ def source_wheel(python: Path, backend: str, cuda_arch: str | None, cuda_directo
                f"--config-settings=wheel.build-tag=1{'cu128' if backend == 'cuda' else 'cpu'}"]
     if cuda_arch:
         command.append(f"--config-settings=cmake.define.CMAKE_CUDA_ARCHITECTURES={cuda_arch}")
+    build_env = os.environ.copy()
     if backend == "cuda":
         toolkit, version = cuda_toolchain(cuda_directory)
         command.append(f"--config-settings=cmake.define.CUDAToolkit_ROOT={toolkit}")
         if sys.platform == "win32":
             # VS can keep stale integration files for a newer, absent Toolkit.
             # Select the actual pinned compiler instead of its highest version.
-            command.append(f"--config-settings=cmake.args=-Tcuda={version}")
+            build_env["CMAKE_GENERATOR"] = "Visual Studio 17 2022"
+            build_env["CMAKE_GENERATOR_PLATFORM"] = "x64"
+            build_env["CMAKE_GENERATOR_TOOLSET"] = f"cuda={version}"
         else:
             command.append(f"--config-settings=cmake.define.CMAKE_CUDA_COMPILER={toolkit / 'bin/nvcc'}")
-    run(command)
+    run(command, env=build_env)
     wheels = list(destination.glob(f"confucius_r2t2_native-{NATIVE_VERSION}-*.whl"))
     if len(wheels) != 1:
         raise RuntimeError(f"Expected exactly one native wheel under {destination}, got {len(wheels)}")

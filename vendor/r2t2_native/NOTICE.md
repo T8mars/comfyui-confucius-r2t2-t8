@@ -16,6 +16,12 @@ The build script obtains llama.cpp at commit
 its source is not committed to this repository. Anyone distributing compiled
 native binaries must also comply with that project's license terms.
 
+The portable wheel statically links llama.cpp, mtmd and ggml; it contains no
+llama CLI. CPU and CUDA builds share the same pybind API on Windows and Linux.
+CUDA runtime/cuBLAS dependencies are provided separately by NVIDIA's pip
+packages. Additional notices for embedded libraries, pybind11 and the GNU
+runtime exception are included in `THIRD_PARTY_NOTICES.txt`.
+
 The GGUF model and projector weights are downloaded separately into the
 Git-ignored `models/` directory. They are governed by the upstream
 [NetEase Youdao Model Use License Agreement](https://github.com/netease-youdao/Confucius4-R2T2/blob/26d55a54ce5670cff9947a167d8ed95d569fd4d9/MODEL_LICENSE),
