@@ -3,7 +3,7 @@ name: Native wheels and platform inference
 on:
   workflow_dispatch:
   pull_request:
-    paths: ["bridge.py", "r2t2_core/**", "vendor/r2t2_native/**", "scripts/setup_worker*", "scripts/integration_platform.py", "requirements-worker.txt", ".github/workflows/native-wheels.yml"]
+    paths: ["vendor/r2t2_native/**", ".github/workflows/native-wheels.yml"]
 
 permissions:
   contents: read

@@ -13,6 +13,11 @@ on:
         default: native-v0.2.0
         required: true
         type: string
+      backend:
+        description: Backends to validate
+        default: all
+        type: choice
+        options: [all, cpu, cuda]
 
 permissions:
   contents: read
@@ -26,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2022]
-        backend: [cpu, cuda]
+        backend: ${{ fromJSON(inputs.backend == 'cpu' && '["cpu"]' || inputs.backend == 'cuda' && '["cuda"]' || '["cpu","cuda"]') }}
     defaults:
       run:
         shell: bash
