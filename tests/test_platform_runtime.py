@@ -107,6 +107,15 @@ class PlatformRuntimeTests(unittest.TestCase):
             self.assertEqual(setup.detect_backend("auto"), "cpu")
         self.assertEqual(setup.detect_backend("cuda"), "cuda")
 
+    def test_source_build_selects_the_pinned_actual_cuda_toolkit(self):
+        with patch.object(setup.subprocess, "check_output", return_value="Cuda compilation tools, release 12.8, V12.8.61"):
+            root, version = setup.cuda_toolchain("toolkit")
+            self.assertEqual(version, "12.8")
+            self.assertEqual(root, Path("toolkit").resolve())
+        with patch.object(setup.subprocess, "check_output", return_value="Cuda compilation tools, release 12.9, V12.9.0"):
+            with self.assertRaisesRegex(RuntimeError, "Toolkit 12.8"):
+                setup.cuda_toolchain("toolkit")
+
 
 if __name__ == "__main__":
     unittest.main()

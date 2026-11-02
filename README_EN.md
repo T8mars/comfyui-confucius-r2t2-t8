@@ -2,24 +2,32 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
-Windows / NVIDIA CUDA speech-to-text nodes based on NetEase Youdao's [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2). Inference uses the official **GGUF Q8 decoder and Q8 audio projector** in an isolated Python 3.12 worker. The upstream vLLM dependencies are not installed into your existing ComfyUI environment.
+**Windows x64 / Linux x86_64** speech-to-text nodes based on NetEase Youdao's [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2), with CPU and NVIDIA CUDA backends. Inference uses the official **GGUF Q8 decoder and Q8 audio projector** in an isolated Python 3.12 worker. The upstream vLLM dependencies are not installed into your existing ComfyUI environment.
 
 The nodes provide offline and streaming file transcription, live browser-microphone captions, and transcript saving. Long-audio segmentation uses [FireRedVAD](https://github.com/FireRedTeam/FireRedVAD) ONNX. See the [Hugging Face model repository](https://huggingface.co/t8star/Confucius-R2t2-Comfy) for assets and license details.
 
 ## Install
 
 1. Clone this repository into `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`. Comfy Registry publishing is configured; installation through Manager search requires version approval.
-2. Install Python 3.12, Git, CMake, Visual Studio 2022 C++ Build Tools, and CUDA Toolkit 12.8. Open PowerShell in the node directory and run:
+2. Install **64-bit CPython 3.12**. Run the command for your OS in the node directory:
 
    ```powershell
-   .\scripts\setup_worker_windows.ps1
+   # Windows
+   py -3.12 scripts/setup_worker.py
    ```
 
-3. Restart ComfyUI. Setup downloads and verifies about 2.19 GB of Q8 model files and builds a CUDA extension from a pinned llama.cpp revision. The default CUDA architecture is 120 (RTX 50 series). For another NVIDIA GPU, run `setup_worker_windows.ps1 -SkipNativeBuild` first, then `build_native_windows.ps1 -CudaArch <architecture>`.
+   ```bash
+   # Linux
+   python3.12 scripts/setup_worker.py
+   ```
 
-The worker and weights live under Git-ignored `.runtime/` and `models/` in the node directory. For a manual junction into an existing ComfyUI checkout, run `scripts/install_comfy_windows.ps1 -ComfyDir 'C:\path\to\ComfyUI'`.
+3. Restart ComfyUI and refresh the frontend. Setup creates an isolated environment, installs the matching native **wheel**, and downloads/verifies about 2.19 GB of Q8 weights plus FireRedVAD. It selects CUDA when it detects an NVIDIA GPU; use `--backend cpu` or `--backend cuda` to choose explicitly.
 
-**Prebuilt components (0.1.8):** the worker also accepts `.runtime/worker/python.exe`, preferring the existing `Scripts/python.exe`; `R2T2_WORKER_PYTHON` overrides both. The native layout uses `.runtime/build-native-cu128/lib/` for matching runtime libraries, `backends/` for ggml backend plugins only, and `python/` for a single `qwen3asr_native*.pyd`. Successfully registered plugins load once. Bundled CUDA DLLs do not require a local Toolkit directory. Use matching Python 3.12 ABI, runtime libraries and GPU architecture. Source-build scripts remain available; this update does not provide a standalone distribution bundle.
+**No llama executable, CMake, Visual Studio or CUDA Toolkit is needed for prebuilt wheels.** CUDA runtime libraries come from NVIDIA's pip packages; a compatible NVIDIA driver is still required. Weights and environments stay in Git-ignored `models/` and `.runtime/`. ComfyUI's Python can be 3.10 or newer, separate from the 3.12 worker.
+
+Native wheels: [native-v0.2.0](https://github.com/T8mars/comfyui-confucius-r2t2-t8/releases/tag/native-v0.2.0). Prebuilt CPU wheels require AVX2 and Linux glibc ≥ 2.28; CUDA wheels use CUDA 12.8 and Linux glibc ≥ 2.35. Linux uses `.runtime/worker/bin/python` and a `.so` extension, with no `.exe`. Recreate the worker on each OS; do not copy a Windows environment to Linux. Model files can be reused.
+
+If no wheel matches, install Git, CMake and a C++ compiler and run `python scripts/setup_worker.py --native source --backend cpu`. CUDA source builds additionally require CUDA Toolkit 12.8; use `--cuda-toolkit /path/to/cuda-12.8 --cuda-arch '86;89;120'` if needed. For a local wheel, pass `--wheel /path/to/native.whl`; add `--skip-model-download` when weights are already present. `setup_worker_windows.ps1` and `setup_worker_linux.sh` are convenience entry points. `R2T2_WORKER_PYTHON` still selects a custom isolated interpreter, and existing Windows native layouts remain supported.
 
 ## Use
 

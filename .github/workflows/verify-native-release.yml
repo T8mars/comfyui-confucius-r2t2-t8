@@ -1,0 +1,83 @@
+name: Verify installed native release wheels
+
+on:
+  push:
+    branches: [codex/windows-linux-runtime]
+    paths: [".github/workflows/verify-native-release.yml"]
+  pull_request:
+    paths: ["bridge.py", "nodes.py", "r2t2_core/**", "scripts/setup_worker*", "requirements-worker.txt", "tests/**", ".github/workflows/verify-native-release.yml"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Native release containing wheels and native-wheels.json (draft is supported)
+        default: native-v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  installed-wheel:
+    if: github.event_name != 'push'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        backend: [cpu, cuda]
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag || 'native-v0.2.0' }}
+      NATIVE_BACKEND: ${{ matrix.backend }}
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Select the platform wheel from the release manifest
+        run: |
+          python -m pip install packaging==25.0
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern native-wheels.json --dir .runtime/release-download
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from packaging.tags import sys_tags
+          from scripts.setup_worker import select_wheel
+          manifest=json.loads(Path('.runtime/release-download/native-wheels.json').read_text())
+          wheel=select_wheel(manifest, set(map(str,sys_tags())), os.environ['NATIVE_BACKEND'])
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as out:
+              out.write('NATIVE_WHEEL_NAME='+wheel['filename']+'\n')
+              out.write('NATIVE_WHEEL_SHA256='+wheel['sha256']+'\n')
+          PY
+      - name: Download and verify the selected wheel
+        run: |
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$NATIVE_WHEEL_NAME" --dir .runtime/release-download
+          python - <<'PY'
+          import hashlib,os
+          from pathlib import Path
+          path=Path('.runtime/release-download')/os.environ['NATIVE_WHEEL_NAME']
+          assert hashlib.sha256(path.read_bytes()).hexdigest()==os.environ['NATIVE_WHEEL_SHA256']
+          PY
+      - name: Install without compiling or selecting a CUDA Toolkit directory
+        run: |
+          unset CUDA_PATH CUDA_HOME LD_LIBRARY_PATH
+          python scripts/setup_worker.py --backend "$NATIVE_BACKEND" --wheel ".runtime/release-download/$NATIVE_WHEEL_NAME"
+      - name: Real Q8 nodes, stream, Live retention and SRT
+        run: |
+          unset CUDA_PATH CUDA_HOME LD_LIBRARY_PATH
+          if [ "$RUNNER_OS" = Windows ]; then P=.runtime/worker/Scripts/python.exe; else P=.runtime/worker/bin/python; fi
+          "$P" -B -m unittest discover -s tests -p 'test_*.py' -v
+          "$P" scripts/integration_platform.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-check-${{ matrix.os }}-${{ matrix.backend }}
+          path: |
+            .runtime/platform-check.json
+            .runtime/worker.log

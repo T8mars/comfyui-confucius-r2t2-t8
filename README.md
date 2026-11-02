@@ -2,24 +2,32 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
-基于网易有道 [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) 的 Windows / NVIDIA CUDA 语音转文字节点。使用官方 **GGUF Q8 主模型 + Q8 音频 projector**；推理运行在独立的 Python 3.12 worker 中，不向现有 ComfyUI Python 安装上游 vLLM 依赖。
+基于网易有道 [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) 的 **Windows x64 / Linux x86_64** 语音转文字节点，支持 CPU 和 NVIDIA CUDA。使用官方 **GGUF Q8 主模型 + Q8 音频 projector**；推理运行在独立的 Python 3.12 worker 中，不向现有 ComfyUI Python 安装上游 vLLM 依赖。
 
 支持文件离线转写、文件流式转写、浏览器麦克风实时字幕和保存转写。长音频分段使用 [FireRedVAD](https://github.com/FireRedTeam/FireRedVAD) ONNX。模型文件及许可说明见 [Hugging Face 模型仓库](https://huggingface.co/t8star/Confucius-R2t2-Comfy)。
 
 ## 安装
 
 1. 将本仓库克隆到 `ComfyUI/custom_nodes/comfyui-confucius-r2t2-t8`。已接入 Comfy Registry 发布流程；Manager 搜索安装需要官方版本审核通过。
-2. 安装 Python 3.12、Git、CMake、Visual Studio 2022 C++ 构建工具和 CUDA Toolkit 12.8。在节点目录打开 PowerShell，运行：
+2. 安装 **CPython 3.12（64 位）**，在节点目录运行对应命令：
 
    ```powershell
-   .\scripts\setup_worker_windows.ps1
+   # Windows
+   py -3.12 scripts/setup_worker.py
    ```
 
-3. 重启 ComfyUI。首次设置会下载并校验约 2.19 GB 的 Q8 模型文件，并从固定版本的 llama.cpp 构建 CUDA 扩展；需要预留编译时间。默认编译目标为 RTX 50 系列（CUDA 架构 120）。其他 NVIDIA GPU 请先运行 `setup_worker_windows.ps1 -SkipNativeBuild`，再运行 `build_native_windows.ps1 -CudaArch <架构>`。
+   ```bash
+   # Linux
+   python3.12 scripts/setup_worker.py
+   ```
 
-安装脚本将 worker 与模型放在节点目录下的 `.runtime/`、`models/`，两者均被 Git 忽略。手动接入已有 ComfyUI 源码目录可执行 `scripts/install_comfy_windows.ps1 -ComfyDir 'C:\path\to\ComfyUI'`。
+3. 重启 ComfyUI 并刷新前端。安装器自动创建独立环境，下载本机匹配的原生 **wheel**、约 2.19 GB 的 Q8 模型和 FireRedVAD，并校验文件。检测到 NVIDIA GPU 时选择 CUDA；可用 `--backend cpu` 或 `--backend cuda` 指定。
 
-**预编译组件（0.1.8）**：worker 也可使用 `.runtime/worker/python.exe`，优先选择原有 `Scripts/python.exe`；`R2T2_WORKER_PYTHON` 可指定解释器。预编译原生布局使用 `.runtime/build-native-cu128/lib/` 存放匹配的运行库、`backends/` 仅存放 ggml 后端插件、`python/` 存放唯一的 `qwen3asr_native*.pyd`。成功注册的插件只加载一次；组件自行提供的 CUDA DLL 无需依赖本机 Toolkit 目录。须使用相互匹配的 Python 3.12 ABI、运行库及 GPU 架构。本仓库仍提供源码构建脚本，未新增可分发的独立整合包。
+**无需 llama 可执行程序，也无需为预编译轮子安装 CMake、Visual Studio 或 CUDA Toolkit。** CUDA 运行库通过 NVIDIA 的 pip 包安装，仅需兼容的显卡驱动。模型与环境分别放在 Git 忽略的 `models/` 和 `.runtime/`。ComfyUI 自身 Python 可为 3.10 以上，与 3.12 worker 分开。
+
+原生轮子见 [native-v0.2.0](https://github.com/T8mars/comfyui-confucius-r2t2-t8/releases/tag/native-v0.2.0)。预编译 CPU 轮子要求 AVX2，Linux glibc ≥ 2.28；CUDA 轮子使用 CUDA 12.8，Linux glibc ≥ 2.35。Linux 上没有 `.exe`：worker 使用 `.runtime/worker/bin/python`，扩展为 `.so`。不要把 Windows 的 `.runtime/worker` 复制到 Linux；重新安装环境即可，模型文件可以复用。
+
+没有匹配轮子时，可在具备 Git、CMake 和 C++ 编译器的机器运行 `python scripts/setup_worker.py --native source --backend cpu`；源码 CUDA 构建还需 CUDA Toolkit 12.8，可加 `--cuda-toolkit /path/to/cuda-12.8 --cuda-arch '86;89;120'`。本地轮子用 `--wheel /path/to/native.whl`；模型已备齐时加 `--skip-model-download`。`setup_worker_windows.ps1` 和 `setup_worker_linux.sh` 为便捷入口。`R2T2_WORKER_PYTHON` 仍可指定独立解释器，旧 Windows 原生目录保持兼容。
 
 ## 使用
 

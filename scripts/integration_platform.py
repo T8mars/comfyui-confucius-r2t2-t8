@@ -101,7 +101,9 @@ def main():
         report["elapsed_seconds"] = round(time.perf_counter() - started, 3)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(report, ensure_ascii=False), flush=True)
+    # English Windows terminals may use cp1252 even when recognition is Chinese.
+    # Keep the report file UTF-8 and the console JSON encoding-independent.
+    print(json.dumps(report, ensure_ascii=True), flush=True)
 
 
 if __name__ == "__main__":

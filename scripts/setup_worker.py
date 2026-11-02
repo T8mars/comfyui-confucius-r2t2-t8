@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -122,7 +123,26 @@ def install_wheel(python: Path, backend: str, wheel: Path | None) -> None:
     run([python, "-m", "pip", "install", "--force-reinstall", "--no-deps", wheel])
 
 
-def source_wheel(python: Path, backend: str, cuda_arch: str | None) -> Path:
+def cuda_toolchain(directory: str | None = None) -> tuple[Path, str]:
+    location = directory or os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")
+    if location:
+        root = Path(location).resolve()
+        nvcc = root / "bin" / ("nvcc.exe" if sys.platform == "win32" else "nvcc")
+    else:
+        found = shutil.which("nvcc")
+        if not found:
+            raise RuntimeError("CUDA source builds require CUDA Toolkit 12.8; prebuilt wheels do not")
+        nvcc = Path(found).resolve()
+        root = nvcc.parent.parent
+    output = subprocess.check_output([str(nvcc), "--version"], text=True)
+    match = re.search(r"release (\d+\.\d+)", output)
+    if not match or match.group(1) != "12.8":
+        raise RuntimeError("Use CUDA Toolkit 12.8 to match the pinned pip CUDA runtimes, "
+                           "or install a prebuilt wheel instead")
+    return root, match.group(1)
+
+
+def source_wheel(python: Path, backend: str, cuda_arch: str | None, cuda_directory: str | None = None) -> Path:
     source = ROOT / ".reference" / "llama.cpp"
     if not (source / "CMakeLists.txt").is_file():
         source.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +160,15 @@ def source_wheel(python: Path, backend: str, cuda_arch: str | None) -> Path:
                f"--config-settings=wheel.build-tag=1{'cu128' if backend == 'cuda' else 'cpu'}"]
     if cuda_arch:
         command.append(f"--config-settings=cmake.define.CMAKE_CUDA_ARCHITECTURES={cuda_arch}")
+    if backend == "cuda":
+        toolkit, version = cuda_toolchain(cuda_directory)
+        command.append(f"--config-settings=cmake.define.CUDAToolkit_ROOT={toolkit}")
+        if sys.platform == "win32":
+            # VS can keep stale integration files for a newer, absent Toolkit.
+            # Select the actual pinned compiler instead of its highest version.
+            command.append(f"--config-settings=cmake.args=-Tcuda={version}")
+        else:
+            command.append(f"--config-settings=cmake.define.CMAKE_CUDA_COMPILER={toolkit / 'bin/nvcc'}")
     run(command)
     wheels = list(destination.glob(f"confucius_r2t2_native-{NATIVE_VERSION}-*.whl"))
     if len(wheels) != 1:
@@ -154,6 +183,7 @@ def main(argv=None) -> None:
     parser.add_argument("--native", choices=("wheel", "source"), default="wheel")
     parser.add_argument("--wheel", type=Path, help="Use a local verified native wheel instead of downloading")
     parser.add_argument("--cuda-arch", help="Source build only, e.g. 86;89;120; defaults to the build system's selection")
+    parser.add_argument("--cuda-toolkit", help="Source build only: CUDA Toolkit 12.8 directory")
     parser.add_argument("--skip-model-download", action="store_true")
     parser.add_argument("--skip-native", action="store_true", help="Set up worker dependencies only")
     args = parser.parse_args(argv)
@@ -176,7 +206,7 @@ def main(argv=None) -> None:
     backend = detect_backend(args.backend)
     if not args.skip_native:
         print(f"Installing {backend} native Python wheel (no llama executable)", flush=True)
-        wheel = source_wheel(python, backend, args.cuda_arch) if args.native == "source" else args.wheel
+        wheel = source_wheel(python, backend, args.cuda_arch, args.cuda_toolkit) if args.native == "source" else args.wheel
         install_wheel(python, backend, wheel)
         if backend == "cuda":
             run([python, "-m", "pip", "install", "nvidia-cublas-cu12==12.8.4.1", "nvidia-cuda-runtime-cu12==12.8.90"])
