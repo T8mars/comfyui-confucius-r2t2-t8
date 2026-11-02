@@ -27,6 +27,8 @@
 
 原生轮子见 [native-v0.2.0](https://github.com/T8mars/comfyui-confucius-r2t2-t8/releases/tag/native-v0.2.0)。预编译 CPU 轮子要求 AVX2，Linux glibc ≥ 2.28；CUDA 轮子使用 CUDA 12.8，Linux glibc ≥ 2.35。Linux 上没有 `.exe`：worker 使用 `.runtime/worker/bin/python`，扩展为 `.so`。不要把 Windows 的 `.runtime/worker` 复制到 Linux；重新安装环境即可，模型文件可以复用。
 
+0.2.0 的四种轮子均已通过[全新环境安装与真实 Q8 节点验证](https://github.com/T8mars/comfyui-confucius-r2t2-t8/actions/runs/41421574346)，覆盖离线、文件流式、Live 结果保留及 SRT。Windows CUDA 另在 RTX 5090 Laptop 实测；Linux CUDA 已验证加载和 CPU 回退，尚未进行 Linux 物理显卡测试。
+
 没有匹配轮子时，可在具备 Git、CMake 和 C++ 编译器的机器运行 `python scripts/setup_worker.py --native source --backend cpu`；源码 CUDA 构建还需 CUDA Toolkit 12.8，可加 `--cuda-toolkit /path/to/cuda-12.8 --cuda-arch '86;89;120'`。本地轮子用 `--wheel /path/to/native.whl`；模型已备齐时加 `--skip-model-download`。`setup_worker_windows.ps1` 和 `setup_worker_linux.sh` 为便捷入口。`R2T2_WORKER_PYTHON` 仍可指定独立解释器，旧 Windows 原生目录保持兼容。
 
 ## 使用

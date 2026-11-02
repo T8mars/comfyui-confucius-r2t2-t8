@@ -27,6 +27,8 @@ The nodes provide offline and streaming file transcription, live browser-microph
 
 Native wheels: [native-v0.2.0](https://github.com/T8mars/comfyui-confucius-r2t2-t8/releases/tag/native-v0.2.0). Prebuilt CPU wheels require AVX2 and Linux glibc ≥ 2.28; CUDA wheels use CUDA 12.8 and Linux glibc ≥ 2.35. Linux uses `.runtime/worker/bin/python` and a `.so` extension, with no `.exe`. Recreate the worker on each OS; do not copy a Windows environment to Linux. Model files can be reused.
 
+All four 0.2.0 wheels passed [fresh-environment installation and real Q8 node checks](https://github.com/T8mars/comfyui-confucius-r2t2-t8/actions/runs/41421574346), covering offline and file-streaming transcription, retained Live results, and SRT. Windows CUDA was also tested on an RTX 5090 Laptop. Linux CUDA loading and CPU fallback passed; a physical Linux GPU has not been tested.
+
 If no wheel matches, install Git, CMake and a C++ compiler and run `python scripts/setup_worker.py --native source --backend cpu`. CUDA source builds additionally require CUDA Toolkit 12.8; use `--cuda-toolkit /path/to/cuda-12.8 --cuda-arch '86;89;120'` if needed. For a local wheel, pass `--wheel /path/to/native.whl`; add `--skip-model-download` when weights are already present. `setup_worker_windows.ps1` and `setup_worker_linux.sh` are convenience entry points. `R2T2_WORKER_PYTHON` still selects a custom isolated interpreter, and existing Windows native layouts remain supported.
 
 ## Use
