@@ -6,6 +6,7 @@ import atexit
 import http.client
 import json
 import os
+import sys
 import secrets
 import socket
 import struct
@@ -20,13 +21,15 @@ ROOT = Path(__file__).resolve().parent
 SESSION_CREDENTIAL_TTL_SECONDS = 75 * 60
 
 
-def _worker_python() -> Path:
-    """The venv layout first, then the portable worker shipped with the component."""
+def _worker_python(platform: str | None = None) -> Path:
+    """Select the host OS's isolated interpreter, never a different OS's binary."""
     base = ROOT / ".runtime" / "worker"
-    for candidate in (base / "Scripts" / "python.exe", base / "python.exe"):
+    candidates = ((base / "Scripts" / "python.exe", base / "python.exe") if (platform or sys.platform) == "win32"
+                  else (base / "bin" / "python", base / "bin" / "python3"))
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
-    return base / "Scripts" / "python.exe"
+    return candidates[0]
 
 
 class WorkerError(RuntimeError):
@@ -81,10 +84,13 @@ class WorkerManager:
         override = os.environ.get("R2T2_WORKER_PYTHON")
         python = Path(override) if override else _worker_python()
         if not python.is_file():
-            raise WorkerError(f"Isolated worker Python not found: {python}. Run scripts/setup_worker_windows.ps1")
+            raise WorkerError(f"Isolated worker Python not found: {python}. "
+                              "Run Python 3.12: python scripts/setup_worker.py "
+                              "(Windows or Linux), then restart ComfyUI.")
         self.port = self._port()
         self.token = secrets.token_urlsafe(48)
-        env_keys = ("SYSTEMROOT", "WINDIR", "PATH", "USERPROFILE", "TEMP", "TMP", "CUDA_PATH", "CUDA_VISIBLE_DEVICES")
+        env_keys = ("SYSTEMROOT", "WINDIR", "PATH", "USERPROFILE", "HOME", "TEMP", "TMP", "TMPDIR",
+                    "XDG_CACHE_HOME", "CUDA_PATH", "CUDA_HOME", "CUDA_VISIBLE_DEVICES", "LD_LIBRARY_PATH")
         env = {key: os.environ[key] for key in env_keys if key in os.environ}
         env["R2T2_WORKER_TOKEN"] = self.token
         env["PYTHONIOENCODING"] = "utf-8"

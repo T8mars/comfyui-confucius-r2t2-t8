@@ -1,0 +1,137 @@
+name: Native wheels and platform inference
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-linux-runtime]
+  pull_request:
+    paths: ["bridge.py", "r2t2_core/**", "vendor/r2t2_native/**", "scripts/setup_worker*", "scripts/integration_platform.py", "requirements-worker.txt", ".github/workflows/native-wheels.yml"]
+
+permissions:
+  contents: read
+
+env:
+  LLAMA_COMMIT: ad6c66839af3c5646fba8c6c2e2087a1e4e38948
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+
+jobs:
+  linux-cpu:
+    runs-on: ubuntu-22.04
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    timeout-minutes: 45
+    env:
+      PATH: /opt/python/cp312-cp312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned llama.cpp
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git .reference/llama.cpp
+          git -C .reference/llama.cpp checkout --detach "$LLAMA_COMMIT"
+      - name: Build and repair portable CPU wheel
+        run: |
+          python -m pip install 'auditwheel>=6,<7' packaging==25.0
+          python -m pip wheel --no-deps vendor/r2t2_native -w .runtime/raw-wheels --config-settings=cmake.define.LLAMA_CPP_DIR="$PWD/.reference/llama.cpp"
+          auditwheel repair .runtime/raw-wheels/*.whl --plat manylinux_2_28_x86_64 -w .runtime/wheelhouse
+      - name: Install through the Linux user setup command
+        run: |
+          sh scripts/setup_worker_linux.sh --backend cpu --wheel .runtime/wheelhouse/*.whl
+          .runtime/worker/bin/python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Real Q8 nodes, file stream, Live and SRT
+        run: .runtime/worker/bin/python scripts/integration_platform.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-cpu-wheel
+          path: .runtime/wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-cpu-evidence
+          path: |
+            .runtime/platform-check.json
+            .runtime/worker.log
+
+  platform-wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            backend: cpu
+            build: 1cpu
+          - os: windows-2022
+            backend: cuda
+            build: 1cu128
+          - os: ubuntu-22.04
+            backend: cuda
+            build: 1cu128
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Windows CUDA Toolkit for wheel compilation
+        if: matrix.backend == 'cuda' && runner.os == 'Windows'
+        uses: Jimver/cuda-toolkit@c35baa1a18fd1fc9dcf47c5bd839bf30559c0bc3 # v0.2.24
+        with:
+          cuda: '12.8.1'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
+      - name: Install Linux CUDA Toolkit for wheel compilation
+        if: matrix.backend == 'cuda' && runner.os == 'Linux'
+        uses: Jimver/cuda-toolkit@c35baa1a18fd1fc9dcf47c5bd839bf30559c0bc3 # v0.2.24
+        with:
+          cuda: '12.8.1'
+          method: network
+          sub-packages: '["nvcc", "cudart-dev", "driver-dev"]'
+          non-cuda-sub-packages: '["libcublas-dev"]'
+      - name: Fetch pinned llama.cpp
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git .reference/llama.cpp
+          git -C .reference/llama.cpp checkout --detach "$LLAMA_COMMIT"
+      - name: Select Windows generator
+        if: runner.os == 'Windows'
+        run: echo 'CMAKE_GENERATOR=Visual Studio 17 2022' >> "$GITHUB_ENV"
+      - name: Build native wheel
+        run: |
+          python -m pip wheel --no-deps vendor/r2t2_native -w .runtime/raw-wheels \
+            --config-settings=cmake.define.LLAMA_CPP_DIR="$PWD/.reference/llama.cpp" \
+            --config-settings=cmake.define.GGML_CUDA=${{ matrix.backend == 'cuda' && 'ON' || 'OFF' }} \
+            --config-settings=wheel.build-tag=${{ matrix.build }} \
+            '--config-settings=cmake.define.CMAKE_CUDA_ARCHITECTURES=75-virtual;86-real;89-real;120-real'
+      - name: Repair Linux CUDA wheel (NVIDIA runtimes installed by pip)
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install 'auditwheel>=6,<7' patchelf
+          auditwheel repair .runtime/raw-wheels/*.whl --plat manylinux_2_35_x86_64 \
+            --exclude libcudart.so.12 --exclude libcublas.so.12 --exclude libcublasLt.so.12 \
+            -w .runtime/wheelhouse
+      - name: Stage Windows wheel
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p .runtime/wheelhouse
+          cp .runtime/raw-wheels/*.whl .runtime/wheelhouse/
+      - name: Install through the platform-neutral setup command
+        run: |
+          python scripts/setup_worker.py --backend ${{ matrix.backend }} --wheel .runtime/wheelhouse/*.whl
+          if [ "$RUNNER_OS" = Windows ]; then P=.runtime/worker/Scripts/python.exe; else P=.runtime/worker/bin/python; fi
+          "$P" -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Real Q8 nodes, file stream, Live and SRT
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then P=.runtime/worker/Scripts/python.exe; else P=.runtime/worker/bin/python; fi
+          "$P" scripts/integration_platform.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.backend }}-wheel
+          path: .runtime/wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.os }}-${{ matrix.backend }}-evidence
+          path: |
+            .runtime/platform-check.json
+            .runtime/worker.log

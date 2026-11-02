@@ -19,7 +19,7 @@ from aiohttp import web
 
 from hotwords import hotword_context
 from .audio import limited_quiet_gain, to_mono_16k
-from .native import NativeQ8Engine, ROOT, OFFICIAL, MODEL_NAME, PROJECTOR_NAME, SUPPORTED_LANGUAGES
+from .native import NativeQ8Engine, ROOT, OFFICIAL, MODEL_NAME, PROJECTOR_NAME, SUPPORTED_LANGUAGES, native_build_id
 from .segmented import PresetBoundaryVAD, SegmentedStream, exact_zero_boundaries, join_segment_text
 from .streaming import StreamingSession, StabilityViolation
 
@@ -29,9 +29,7 @@ MAX_LIVE_SAMPLES = 10 * 60 * 16000
 ACTIVE_IDLE_SECONDS = 30
 AWAITING_FIRST_AUDIO_SECONDS = 120
 TERMINAL_RETENTION_SECONDS = 3600
-_PYD = list((ROOT / ".runtime/build-native-cu128/python").rglob("qwen3asr_native*.pyd"))
-_NATIVE_SHA = hashlib.sha256(_PYD[0].read_bytes()).hexdigest()[:12] if len(_PYD) == 1 else "unbuilt"
-BUILD_ID = "llama-ad6c66839af3-cu128-" + _NATIVE_SHA
+BUILD_ID = native_build_id()
 
 
 def error(code: str, message: str, status: int = 400) -> web.HTTPException:

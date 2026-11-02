@@ -5,6 +5,8 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import importlib
+import importlib.machinery
+import importlib.util
 import os
 import struct
 import sys
@@ -26,6 +28,7 @@ _DLL_HANDLES: list[Any] = []
 _BACKEND_REGISTRIES: dict[Path, Any] = {}
 _LOADED_PLUGINS: set[Path] = set()
 _BACKEND_LOCK = threading.RLock()
+LLAMA_COMMIT = "ad6c66839af3c5646fba8c6c2e2087a1e4e38948"
 SUPPORTED_LANGUAGES = frozenset({"Chinese", "English", "Cantonese", "Japanese", "Korean",
                                  "German", "French", "Russian", "Portuguese", "Spanish", "Italian"})
 
@@ -88,23 +91,58 @@ def _load_backends(build: Path) -> None:
                     _LOADED_PLUGINS.add(plugin)
 
 
+def _installed_native():
+    try:
+        package = importlib.import_module("r2t2_native")
+    except ModuleNotFoundError as exc:
+        if exc.name != "r2t2_native":
+            raise
+        return None
+    if package.API_VERSION != 1 or package.LLAMA_COMMIT != LLAMA_COMMIT:
+        raise RuntimeError("Incompatible native wheel; run python scripts/setup_worker.py")
+    return package.load_native()
+
+
+def native_build_id() -> str:
+    """Fingerprint the actual installed platform binary, without loading CUDA."""
+    spec = importlib.util.find_spec("r2t2_native")
+    directory = (Path(spec.origin).parent if spec and spec.origin else
+                 ROOT / ".runtime" / "build-native-cu128" / "python")
+    suffixes = tuple(importlib.machinery.EXTENSION_SUFFIXES)
+    binaries = [p for p in directory.rglob("qwen3asr_native*")
+                if p.is_file() and any(p.name.endswith(s) for s in suffixes)]
+    digest = _sha256(binaries[0])[:12] if len(binaries) == 1 else "unbuilt"
+    return f"llama-{LLAMA_COMMIT[:12]}-{sys.platform}-{digest}"
+
+
 def _load_extension(build: Path):
-    if os.name != "nt":
-        raise RuntimeError("This worker build is for Windows x64")
+    installed = _installed_native()
+    if installed is not None:
+        return installed
+    if not build.is_dir():
+        raise FileNotFoundError("Confucius native backend is not installed. "
+                                "Run python scripts/setup_worker.py to install the "
+                                "Windows/Linux wheel in the isolated worker.")
     build = build.resolve(strict=True)
-    pyd_files = list((build / "python").rglob("qwen3asr_native*.pyd"))
+    suffixes = (".pyd",) if os.name == "nt" else tuple(importlib.machinery.EXTENSION_SUFFIXES)
+    pyd_files = [p for p in (build / "python").rglob("qwen3asr_native*")
+                 if p.is_file() and any(p.name.endswith(s) for s in suffixes)]
     if len(pyd_files) != 1:
-        raise FileNotFoundError(f"Expected one qwen3asr_native .pyd under {build / 'python'}; found {len(pyd_files)}")
+        raise FileNotFoundError(f"Expected one platform-compatible qwen3asr_native extension "
+                                f"under {build / 'python'}; found {len(pyd_files)}. "
+                                "Run python scripts/setup_worker.py")
     pyd_dir = pyd_files[0].parent
-    dll_dirs = {p.parent for p in build.rglob("*.dll")}
-    cuda_bin = Path(os.environ.get("CUDA_PATH", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8")) / "bin"
-    if cuda_bin.is_dir():
-        dll_dirs.add(cuda_bin)
-    for dll_dir in sorted(dll_dirs):
-        _DLL_HANDLES.append(os.add_dll_directory(str(dll_dir)))
+    if os.name == "nt":
+        dll_dirs = {p.parent for p in build.rglob("*.dll")}
+        cuda_bin = Path(os.environ.get("CUDA_PATH", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8")) / "bin"
+        if cuda_bin.is_dir():
+            dll_dirs.add(cuda_bin)
+        for dll_dir in sorted(dll_dirs):
+            _DLL_HANDLES.append(os.add_dll_directory(str(dll_dir)))
     if str(pyd_dir) not in sys.path:
         sys.path.insert(0, str(pyd_dir))
-    _load_backends(build)
+    if os.name == "nt":
+        _load_backends(build)
     return importlib.import_module("qwen3asr_native")
 
 

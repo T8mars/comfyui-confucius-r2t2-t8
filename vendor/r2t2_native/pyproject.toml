@@ -1,0 +1,27 @@
+[build-system]
+requires = ["scikit-build-core==1.1.1", "pybind11==3.0.1"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "confucius-r2t2-native"
+version = "0.2.0"
+description = "Pinned in-process Confucius4 GGUF Q8 audio backend for Windows and Linux"
+requires-python = ">=3.12,<3.13"
+license = {file = "LICENSE"}
+dependencies = ["numpy>=2.0,<3"]
+
+[project.optional-dependencies]
+cuda = ["nvidia-cublas-cu12==12.8.4.1", "nvidia-cuda-runtime-cu12==12.8.90"]
+
+[tool.scikit-build]
+cmake.version = ">=3.26,<4"
+cmake.build-type = "Release"
+build.targets = ["qwen3asr_native"]
+install.components = ["r2t2-native"]
+wheel.packages = ["r2t2_native"]
+wheel.build-tag = "1cpu"
+sdist.include = ["CMakeLists.txt", "native_ext.cpp", "r2t2_native/**", "LICENSE", "NOTICE.md"]
+
+[tool.scikit-build.cmake.define]
+R2T2_WHEEL_BUILD = "ON"
+GGML_CUDA = "OFF"

@@ -15,13 +15,13 @@ class WorkerPythonTests(unittest.TestCase):
             base = Path(directory) / ".runtime/worker"
             venv = base / "Scripts/python.exe"
             portable = base / "python.exe"
-            self.assertEqual(bridge._worker_python(), venv)
+            self.assertEqual(bridge._worker_python("win32"), venv)
             base.mkdir(parents=True)
             portable.touch()
-            self.assertEqual(bridge._worker_python(), portable)
+            self.assertEqual(bridge._worker_python("win32"), portable)
             venv.parent.mkdir()
             venv.touch()
-            self.assertEqual(bridge._worker_python(), venv)
+            self.assertEqual(bridge._worker_python("win32"), venv)
 
     def test_override_is_used_by_worker_start(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -124,6 +124,7 @@ class BackendPluginTests(unittest.TestCase):
         fake_os = types.SimpleNamespace(name="nt", environ={"CUDA_PATH": str(self.build / "missing-toolkit")},
                                         add_dll_directory=add_directory)
         with patch.object(native, "os", fake_os), patch.object(native, "_DLL_HANDLES", []), \
+                patch.object(native, "_installed_native", return_value=None), \
                 patch.object(native.sys, "path", list(native.sys.path)), \
                 patch.object(native.importlib, "import_module", return_value="extension") as load:
             self.assertEqual(native._load_extension(self.build), "extension")
