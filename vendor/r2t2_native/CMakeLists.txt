@@ -49,6 +49,10 @@ target_include_directories(qwen3asr_native PRIVATE
     "${LLAMA_CPP_DIR}/tools/mtmd"
 )
 target_link_libraries(qwen3asr_native PRIVATE mtmd llama)
+if(R2T2_WHEEL_BUILD AND UNIX AND NOT APPLE)
+    # Avoid requiring the build machine's newer libstdc++ on user systems.
+    target_link_options(qwen3asr_native PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 
 # Visual Studio uses RUNTIME_OUTPUT_DIRECTORY for .pyd and adds a configuration
 # subdirectory unless the configuration-specific property is also defined.

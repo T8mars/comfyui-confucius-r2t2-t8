@@ -128,8 +128,8 @@ class BackendPluginTests(unittest.TestCase):
                 patch.object(native.sys, "path", list(native.sys.path)), \
                 patch.object(native.importlib, "import_module", return_value="extension") as load:
             self.assertEqual(native._load_extension(self.build), "extension")
-            registered_dirs = {call.args[0] for call in add_directory.call_args_list}
-            self.assertEqual(registered_dirs, {str(self.build / "lib"), str(self.build / "backends")})
+            registered_dirs = {Path(call.args[0]).resolve() for call in add_directory.call_args_list}
+            self.assertEqual(registered_dirs, {(self.build / "lib").resolve(), (self.build / "backends").resolve()})
             load.assert_called_once_with("qwen3asr_native")
             self.assertEqual(self.registry.ggml_backend_load.call_count, 1)
 
