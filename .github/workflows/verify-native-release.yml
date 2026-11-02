@@ -20,7 +20,10 @@ on:
         options: [all, cpu, cuda]
 
 permissions:
-  contents: read
+  # GitHub only exposes unpublished draft assets to tokens with repository write
+  # access. This workflow reads/downloads them; it never writes to the repository.
+  # Fork PR tokens are still read-only and use the published release.
+  contents: write
 
 jobs:
   installed-wheel:
